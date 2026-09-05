@@ -20,6 +20,7 @@ def mapping_workbook(
     slots: SlotGate | None = None,
     glossary: dict[tuple[str, str], str] | None = None,
     taxonomy: list[Concept] | None = None,
+    cache_path: Path | None = None,
 ) -> MappingDocument:
     path = dest_dir / "mapping.json"
     if path.exists():
@@ -41,6 +42,8 @@ def mapping_workbook(
         slots=slots,
         cells=cells,
         slot_timeout_sec=timeout,
+        cache_path=cache_path,
+        embedding_model=os.environ.get("EMBEDDING_MODEL", ""),
     )
     write_json(path, doc.model_dump(mode="json"))
     return doc

@@ -80,12 +80,16 @@ class Pipeline:
             glossary = {}
             if self.glossary_dir is not None:
                 glossary = load_glossary(self.glossary_dir / f"{actor_id}.json")
+            cache_path = None
+            if self.glossary_dir is not None:
+                cache_path = self.glossary_dir.parent / "taxonomy_embeddings.npz"
             mapping_workbook(
                 dest_dir,
                 embed=self.embed,
                 chat=self.chat,
                 slots=self.slots,
                 glossary=glossary,
+                cache_path=cache_path,
             )
             stage = self._enter("check")
             check_workbook(dest_dir, self.catalog)

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from cashflow_audit.errors import PortError
 from cashflow_audit.layout.models import Block, Layout, LayoutRow
-from cashflow_audit.mapping.knn import TOP_K, concept_vectors, confident_match, rank_concepts
+from cashflow_audit.mapping.knn import TOP_K, confident_match, rank_concepts
 from cashflow_audit.mapping.models import (
     Concept,
     ConceptPick,
@@ -15,6 +16,7 @@ from cashflow_audit.mapping.models import (
 )
 from cashflow_audit.mapping.normalize import normalize_label
 from cashflow_audit.mapping.roles import article_role
+from cashflow_audit.mapping.vectors import load_concept_vectors
 from cashflow_audit.parse.a1 import format_addr
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, SlotGate
 
@@ -29,6 +31,8 @@ def map_layout(
     slots: SlotGate | None = None,
     cells: list[dict] | None = None,
     slot_timeout_sec: float = 0.0,
+    cache_path: Path | None = None,
+    embedding_model: str = "",
 ) -> MappingDocument:
     concept_ids = {c.id for c in taxonomy}
     glossary_n = {
@@ -41,7 +45,12 @@ def map_layout(
     need_knn = [row for row in pending if row.concept_id is None]
     if need_knn and embed is not None and _acquire(slots, "embed", slot_timeout_sec):
         try:
-            index = concept_vectors(embed, taxonomy)
+            index = load_concept_vectors(
+                embed,
+                taxonomy,
+                cache_path=cache_path,
+                model=embedding_model,
+            )
             if index:
                 queries = embed.embed([row.label for row in need_knn])
                 for row, vec in zip(need_knn, queries, strict=True):

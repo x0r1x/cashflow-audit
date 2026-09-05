@@ -220,4 +220,6 @@ __marimo__/
 # cashflow-audit runtime data (never commit client books)
 data/audits/
 data/glossary/
+data/taxonomy_embeddings.npz
+data/taxonomy_embeddings.npz.lock
 .worktrees/
