@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+import asyncio
+import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+
+from fastapi import FastAPI
+
+from cashflow_audit.api.context import MAX_UPLOAD_BYTES, AppContext
+from cashflow_audit.api.errors import ApiError, api_error_handler, audit_error_handler
+from cashflow_audit.api.routes import router
+from cashflow_audit.api.workers import reconcile, sweep_expired, worker_loop
+from cashflow_audit.errors import AuditError
+from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
+from cashflow_audit.store.disk import DiskStore
+
+
+def create_app(
+    *,
+    data_root: Path,
+    bus: JobBus,
+    chat: ChatPort | None = None,
+    embed: EmbedPort | None = None,
+    run_workers: bool = False,
+    worker_concurrency: int | None = None,
+    max_upload_bytes: int = MAX_UPLOAD_BYTES,
+    llm_ok: bool | None = None,
+    embed_ok: bool | None = None,
+    ttl_days: int | None = None,
+) -> FastAPI:
+    if worker_concurrency is None:
+        worker_concurrency = int(os.environ.get("WORKER_CONCURRENCY", "4"))
+    if ttl_days is None:
+        ttl_days = int(os.environ.get("AUDIT_TTL_DAYS", "14"))
+    ctx = AppContext(
+        store=DiskStore(data_root),
+        bus=bus,
+        chat=chat,
+        embed=embed,
+        run_workers=run_workers,
+        worker_concurrency=worker_concurrency,
+        max_upload_bytes=max_upload_bytes,
+        llm_ok=llm_ok,
+        embed_ok=embed_ok,
+        ttl_days=ttl_days,
+    )
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.ctx = ctx
+        if ctx.run_workers:
+            await sweep_expired(ctx)
+            await reconcile(ctx)
+            ctx.worker_tasks = [
+                asyncio.create_task(worker_loop(f"worker-{i}", ctx), name=f"worker-{i}")
+                for i in range(ctx.worker_concurrency)
+            ]
+        yield
+        ctx.stopped = True
+        for task in ctx.worker_tasks:
+            task.cancel()
+        if ctx.worker_tasks:
+            await asyncio.gather(*ctx.worker_tasks, return_exceptions=True)
+
+    app = FastAPI(title="cashflow-audit", lifespan=lifespan)
+    app.state.ctx = ctx
+    app.add_exception_handler(ApiError, api_error_handler)
+    app.add_exception_handler(AuditError, audit_error_handler)
+    app.include_router(router)
+    return app
+
+
+def app_from_env(*, data_dir: Path | None = None) -> FastAPI:
+    from cashflow_audit.adapters.openai_chat import chat_from_env
+    from cashflow_audit.adapters.openai_embed import embed_from_env
+    from cashflow_audit.adapters.redis_jobbus import RedisJobBus
+
+    redis_url = os.environ.get("REDIS_URL")
+    if not redis_url:
+        raise RuntimeError("REDIS_URL required for serve")
+    root = data_dir or Path(os.environ.get("DATA_DIR", "data"))
+    max_run = int(os.environ.get("MAX_INFLIGHT", os.environ.get("WORKER_CONCURRENCY", "4")))
+    bus = RedisJobBus.from_url(
+        redis_url,
+        max_run=max_run,
+        max_llm=int(os.environ.get("MAX_LLM_INFLIGHT", "1")),
+        max_embed=int(os.environ.get("MAX_EMBED_INFLIGHT", "4")),
+    )
+    chat = chat_from_env()
+    embed = embed_from_env()
+    return create_app(
+        data_root=root,
+        bus=bus,
+        chat=chat,
+        embed=embed,
+        run_workers=True,
+        llm_ok=True if chat is not None else None,
+        embed_ok=True if embed is not None else None,
+    )
