@@ -24,6 +24,13 @@ class SlotGate(Protocol):
     def release(self, kind: SlotKind) -> None: ...
 
 
+BudgetKind = Literal["llm", "embed"]
+
+
+class BudgetPort(Protocol):
+    def charge(self, kind: BudgetKind) -> bool: ...
+
+
 @dataclass
 class Job:
     audit_id: str
@@ -73,6 +80,14 @@ class JobBus(Protocol):
     async def acquire_glossary(self, actor_id: str) -> bool: ...
 
     async def release_glossary(self, actor_id: str) -> None: ...
+
+    async def charge(self, audit_id: str, kind: BudgetKind) -> bool: ...
+
+    async def touch_audit(self, audit_id: str) -> None: ...
+
+    async def acquire_taxonomy(self) -> bool: ...
+
+    async def release_taxonomy(self) -> None: ...
 
 
 class AuditStore(Protocol):

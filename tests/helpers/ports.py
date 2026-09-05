@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from cashflow_audit.ports.protocols import BudgetKind
+
 
 class FakeEmbed:
     def __init__(self, table: dict[str, list[float]] | None = None) -> None:
@@ -55,6 +57,9 @@ class GrantSlots:
     def release(self, kind: Literal["llm", "embed", "run"]) -> None:
         return None
 
+    def charge(self, kind: BudgetKind) -> bool:
+        return True
+
 
 class DenySlots:
     def acquire(self, kind: Literal["llm", "embed", "run"], timeout_sec: float = 0) -> bool:
@@ -62,3 +67,20 @@ class DenySlots:
 
     def release(self, kind: Literal["llm", "embed", "run"]) -> None:
         return None
+
+    def charge(self, kind: BudgetKind) -> bool:
+        return True
+
+
+class CapBudget(GrantSlots):
+    def __init__(self, remaining: dict[str, int] | None = None) -> None:
+        self.remaining = remaining or {}
+        self.charges: list[str] = []
+
+    def charge(self, kind: BudgetKind) -> bool:
+        self.charges.append(kind)
+        left = self.remaining.get(kind, 0)
+        if left <= 0:
+            return False
+        self.remaining[kind] = left - 1
+        return True

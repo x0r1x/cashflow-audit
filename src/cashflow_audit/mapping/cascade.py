@@ -51,7 +51,7 @@ def map_layout(
                 cache_path=cache_path,
                 model=embedding_model,
             )
-            if index:
+            if index and _charge(slots, "embed"):
                 queries = embed.embed([row.label for row in need_knn])
                 for row, vec in zip(need_knn, queries, strict=True):
                     row.ranked = rank_concepts(vec, index)
@@ -69,6 +69,8 @@ def map_layout(
     if need_chat and chat is not None and _acquire(slots, "llm", slot_timeout_sec):
         try:
             for row in need_chat:
+                if not _charge(slots, "llm"):
+                    break
                 picked = _ask_chat(chat, row, taxonomy)
                 picked = _guard(row.label, picked, concept_ids)
                 if picked:
@@ -242,3 +244,12 @@ def _release(slots: SlotGate | None, kind: Any) -> None:
     if slots is None:
         return
     slots.release(kind)
+
+
+def _charge(slots: SlotGate | None, kind: Any) -> bool:
+    if slots is None:
+        return True
+    charge = getattr(slots, "charge", None)
+    if charge is None:
+        return True
+    return bool(charge(kind))

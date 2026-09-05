@@ -4,7 +4,7 @@ from cashflow_audit.layout.models import Axis, AxisHeader, Block, Layout, Layout
 from cashflow_audit.mapping.cascade import map_layout
 from cashflow_audit.mapping.models import Concept
 from cashflow_audit.mapping.normalize import normalize_label
-from tests.helpers.ports import DenySlots, FakeChat, FakeEmbed, GrantSlots
+from tests.helpers.ports import CapBudget, DenySlots, FakeChat, FakeEmbed, GrantSlots
 
 TAXONOMY = [
     Concept(id="pnl.revenue", labels=["Revenue", "Выручка", "Sales"]),
@@ -129,6 +129,21 @@ def test_no_slot_does_not_call_embed_or_chat() -> None:
     assert embed.calls == 0
     assert chat.calls == 0
     assert doc.rows[0].source == "question"
+
+
+def test_mapping_row_embed_skipped_when_budget_zero() -> None:
+    embed = FakeEmbed(VECS)
+    layout = _layout(LayoutRow(row=2, label="Выручка"))
+    doc = map_layout(
+        layout,
+        taxonomy=TAXONOMY,
+        glossary={},
+        embed=embed,
+        chat=None,
+        slots=CapBudget({"embed": 0, "llm": 0}),
+    )
+    assert embed.calls == 1
+    assert doc.rows[0].source != "embed"
 
 
 def test_prompt_contains_ids_not_cached_value() -> None:

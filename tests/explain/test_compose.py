@@ -4,7 +4,7 @@ from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
-from tests.helpers.ports import DenySlots, FakeChat, GrantSlots
+from tests.helpers.ports import CapBudget, DenySlots, FakeChat, GrantSlots
 
 
 def _cand(**kwargs) -> Candidate:
@@ -223,3 +223,38 @@ def test_denied_slot_does_not_call_chat_and_uses_template() -> None:
     assert report.findings[0].title != "LLM"
     assert report.status == "degraded"
     assert report.llm_used is False
+
+
+def test_explain_stops_llm_when_budget_exhausted() -> None:
+    chat = FakeChat(
+        payload={
+            "title": "LLM title",
+            "evidence": "LLM evidence P&L!B2",
+            "recommendation": "Проверить. Файл не изменён.",
+            "need_user_input": False,
+            "cited_refs": ["P&L!B2"],
+        }
+    )
+    report = compose_report(
+        candidates=[
+            _cand(),
+            _cand(cell_refs=["P&L!C2"], detector="hidden_input"),
+        ],
+        lineage=LineageDocument(
+            items=[
+                _lin(0),
+                _lin(1, detector="hidden_input", cell_refs=["P&L!C2"], path_refs=["P&L!C2"]),
+            ]
+        ),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2", "P&L!C2", "P&L!C3"},
+        chat=chat,
+        slots=CapBudget({"llm": 1}),
+    )
+    assert chat.calls == 1
+    assert len(report.findings) == 2
+    assert report.findings[0].title == "LLM title"
+    assert report.findings[1].title != "LLM title"
+    assert report.findings[1].title
+    assert report.findings[1].evidence

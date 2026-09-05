@@ -5,7 +5,7 @@ import time
 from collections.abc import Coroutine
 from typing import TypeVar
 
-from cashflow_audit.ports.protocols import JobBus, SlotKind
+from cashflow_audit.ports.protocols import BudgetKind, JobBus, SlotKind
 
 T = TypeVar("T")
 
@@ -16,6 +16,9 @@ class AlwaysGrant:
 
     def release(self, kind: SlotKind) -> None:
         return None
+
+    def charge(self, kind: BudgetKind) -> bool:
+        return True
 
 
 class BusSlotGate:
@@ -32,6 +35,9 @@ class BusSlotGate:
 
     def progress(self, stage: str) -> None:
         self._run(self._bus.set_progress(self._audit_id, stage))
+
+    def charge(self, kind: BudgetKind) -> bool:
+        return self._run(self._bus.charge(self._audit_id, kind))
 
     def _run(self, coro: Coroutine[object, object, T]) -> T:
         return asyncio.run_coroutine_threadsafe(coro, self._loop).result()

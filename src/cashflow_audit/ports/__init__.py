@@ -1,5 +1,6 @@
 from cashflow_audit.ports.protocols import (
     AuditStore,
+    BudgetPort,
     ChatPort,
     EmbedPort,
     Job,
@@ -10,6 +11,7 @@ from cashflow_audit.ports.protocols import (
 
 __all__ = [
     "AuditStore",
+    "BudgetPort",
     "ChatPort",
     "EmbedPort",
     "Job",

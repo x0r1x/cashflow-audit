@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
-from cashflow_audit.ports.protocols import Job, JobState, SlotKind
+from cashflow_audit.ports.protocols import BudgetKind, Job, JobState, SlotKind
 
 
 class MemoryJobBus:
@@ -13,6 +13,8 @@ class MemoryJobBus:
         max_run: int = 4,
         max_llm: int = 1,
         max_embed: int = 4,
+        max_llm_calls: int = 20,
+        max_embed_calls: int = 4,
     ) -> None:
         self.redis_up = redis_up
         self.enqueue_calls: list[str] = []
@@ -20,8 +22,12 @@ class MemoryJobBus:
         self.pending: set[str] = set()
         self.locks: set[str] = set()
         self.glossary_locks: set[str] = set()
+        self.taxonomy_locked = False
+        self.touches: list[str] = []
         self.inflight: dict[str, set[str]] = {"run": set(), "llm": set(), "embed": set()}
         self.max = {"run": max_run, "llm": max_llm, "embed": max_embed}
+        self.max_calls = {"llm": max_llm_calls, "embed": max_embed_calls}
+        self.budget: dict[tuple[str, str], int] = {}
         self._q: asyncio.Queue[str] | None = None
 
     def _queue(self) -> asyncio.Queue[str]:
@@ -108,3 +114,24 @@ class MemoryJobBus:
 
     async def release_glossary(self, actor_id: str) -> None:
         self.glossary_locks.discard(actor_id)
+
+    async def charge(self, audit_id: str, kind: BudgetKind) -> bool:
+        cap = self.max_calls[kind]
+        key = (audit_id, kind)
+        used = self.budget.get(key, 0) + 1
+        if used > cap:
+            return False
+        self.budget[key] = used
+        return True
+
+    async def touch_audit(self, audit_id: str) -> None:
+        self.touches.append(audit_id)
+
+    async def acquire_taxonomy(self) -> bool:
+        if self.taxonomy_locked:
+            return False
+        self.taxonomy_locked = True
+        return True
+
+    async def release_taxonomy(self) -> None:
+        self.taxonomy_locked = False

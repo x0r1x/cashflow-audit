@@ -57,7 +57,7 @@ def compose_report(
     findings: list[Finding] = []
     for pos, (_index, cand, item) in enumerate(kept):
         card = template_card(cand, item)
-        if chat is not None and acquired and pos in llm_eligible:
+        if chat is not None and acquired and pos in llm_eligible and _charge(slots, "llm"):
             overlay = _llm_card(chat, cand, item)
             if overlay is not None:
                 card = overlay
@@ -218,3 +218,12 @@ def _release(slots: SlotGate | None) -> None:
     if slots is None:
         return
     slots.release("llm")
+
+
+def _charge(slots: SlotGate | None, kind: str) -> bool:
+    if slots is None:
+        return True
+    charge = getattr(slots, "charge", None)
+    if charge is None:
+        return True
+    return bool(charge(kind))

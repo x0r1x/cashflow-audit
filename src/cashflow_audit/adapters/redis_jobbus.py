@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from cashflow_audit.ports.protocols import Job, JobState, SlotKind
+from cashflow_audit.ports.protocols import BudgetKind, Job, JobState, SlotKind
 
 STREAM = "cf:audits"
 GROUP = "cf:audits:workers"
@@ -21,6 +21,15 @@ redis.call('SADD', key, member)
 return 1
 """
 
+_CHARGE_LUA = """
+local n = redis.call('INCR', KEYS[1])
+if n > tonumber(ARGV[1]) then
+  redis.call('DECR', KEYS[1])
+  return 0
+end
+return 1
+"""
+
 
 class RedisJobBus:
     def __init__(
@@ -30,9 +39,12 @@ class RedisJobBus:
         max_run: int = 4,
         max_llm: int = 1,
         max_embed: int = 4,
+        max_llm_calls: int = 20,
+        max_embed_calls: int = 4,
     ) -> None:
         self._r = client
         self.max = {"run": max_run, "llm": max_llm, "embed": max_embed}
+        self.max_calls = {"llm": max_llm_calls, "embed": max_embed_calls}
         self._group_ready = False
 
     @classmethod
@@ -43,6 +55,8 @@ class RedisJobBus:
         max_run: int = 4,
         max_llm: int = 1,
         max_embed: int = 4,
+        max_llm_calls: int = 20,
+        max_embed_calls: int = 4,
     ) -> RedisJobBus:
         import redis.asyncio as redis
 
@@ -51,6 +65,8 @@ class RedisJobBus:
             max_run=max_run,
             max_llm=max_llm,
             max_embed=max_embed,
+            max_llm_calls=max_llm_calls,
+            max_embed_calls=max_embed_calls,
         )
 
     async def ping(self) -> bool:
@@ -152,6 +168,25 @@ class RedisJobBus:
 
     async def release_glossary(self, actor_id: str) -> None:
         await self._r.delete(f"cf:lock:glossary:{actor_id}")
+
+    async def charge(self, audit_id: str, kind: BudgetKind) -> bool:
+        cap = self.max_calls[kind]
+        suffix = "llm" if kind == "llm" else "emb"
+        result = await self._r.eval(
+            _CHARGE_LUA, 1, f"cf:budget:{audit_id}:{suffix}", cap
+        )
+        return bool(result)
+
+    async def touch_audit(self, audit_id: str) -> None:
+        await self._r.pexpire(f"cf:lock:audit:{audit_id}", 120_000)
+        await self._r.expire(f"cf:job:{audit_id}", 86400)
+
+    async def acquire_taxonomy(self) -> bool:
+        ok = await self._r.set("cf:lock:taxonomy_emb", "1", nx=True, px=60_000)
+        return bool(ok)
+
+    async def release_taxonomy(self) -> None:
+        await self._r.delete("cf:lock:taxonomy_emb")
 
     async def _ensure_group(self) -> None:
         if self._group_ready:
