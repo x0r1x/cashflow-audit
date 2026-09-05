@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# cashflow-audit runtime data (never commit client books)
+data/audits/
+data/glossary/
+.worktrees/
