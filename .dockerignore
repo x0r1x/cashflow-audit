@@ -1,0 +1,12 @@
+.venv
+.git
+.grok
+.pytest_cache
+.ruff_cache
+.worktrees
+data
+tests
+resources
+docs
+*.pyc
+__pycache__

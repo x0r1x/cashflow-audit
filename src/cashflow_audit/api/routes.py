@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Annotated, Any
 
@@ -61,18 +62,23 @@ async def healthz() -> dict[str, str]:
 async def readyz(request: Request) -> JSONResponse:
     ctx = _ctx(request)
     redis_ok = await ctx.bus.ping()
-    llm = bool(ctx.llm_ok)
-    embeddings = bool(ctx.embed_ok)
     if not redis_ok:
         return JSONResponse(
             {"status": "not_ready", "redis": False, "llm": False, "embeddings": False},
             status_code=503,
         )
+    llm_state = await _port_state(ctx.llm_ok, ctx.llm_probe)
+    embed_state = await _port_state(ctx.embed_ok, ctx.embed_probe)
     status = "ready"
-    if ctx.llm_ok is False or ctx.embed_ok is False:
+    if llm_state is False or embed_state is False:
         status = "degraded"
     return JSONResponse(
-        {"status": status, "redis": True, "llm": llm, "embeddings": embeddings},
+        {
+            "status": status,
+            "redis": True,
+            "llm": bool(llm_state),
+            "embeddings": bool(embed_state),
+        },
         status_code=200,
     )
 
@@ -233,6 +239,17 @@ async def _resolve_status(
         report = Report.model_validate_json((dest / "report.json").read_text(encoding="utf-8"))
         return report.status, "done", None
     return "queued", "queued", None
+
+
+async def _port_state(
+    flag: bool | None,
+    probe: Callable[[], Awaitable[bool | None]] | None,
+) -> bool | None:
+    if flag is not None:
+        return flag
+    if probe is None:
+        return None
+    return await probe()
 
 
 def _validate_upload(filename: str, data: bytes, max_bytes: int) -> None:

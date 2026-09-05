@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,7 +21,11 @@ class AppContext:
     max_upload_bytes: int = MAX_UPLOAD_BYTES
     llm_ok: bool | None = None
     embed_ok: bool | None = None
+    llm_probe: Callable[[], Awaitable[bool | None]] | None = None
+    embed_probe: Callable[[], Awaitable[bool | None]] | None = None
     ttl_days: int = 14
+    heartbeat_sec: float = 30.0
+    sweep_interval_sec: float = 86400.0
     stopped: bool = False
     worker_tasks: list = field(default_factory=list)
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -10,8 +10,9 @@ from fastapi import FastAPI
 
 from cashflow_audit.api.context import MAX_UPLOAD_BYTES, AppContext
 from cashflow_audit.api.errors import ApiError, api_error_handler, audit_error_handler
+from cashflow_audit.api.probes import embed_probe_from_env, llm_probe_from_env
 from cashflow_audit.api.routes import router
-from cashflow_audit.api.workers import reconcile, sweep_expired, worker_loop
+from cashflow_audit.api.workers import daily_sweep, reconcile, sweep_expired, worker_loop
 from cashflow_audit.errors import AuditError
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
 from cashflow_audit.store.disk import DiskStore
@@ -28,7 +29,11 @@ def create_app(
     max_upload_bytes: int = MAX_UPLOAD_BYTES,
     llm_ok: bool | None = None,
     embed_ok: bool | None = None,
+    llm_probe: Callable[[], Awaitable[bool | None]] | None = None,
+    embed_probe: Callable[[], Awaitable[bool | None]] | None = None,
     ttl_days: int | None = None,
+    heartbeat_sec: float = 30.0,
+    sweep_interval_sec: float = 86400.0,
 ) -> FastAPI:
     if worker_concurrency is None:
         worker_concurrency = int(os.environ.get("WORKER_CONCURRENCY", "4"))
@@ -44,7 +49,11 @@ def create_app(
         max_upload_bytes=max_upload_bytes,
         llm_ok=llm_ok,
         embed_ok=embed_ok,
+        llm_probe=llm_probe,
+        embed_probe=embed_probe,
         ttl_days=ttl_days,
+        heartbeat_sec=heartbeat_sec,
+        sweep_interval_sec=sweep_interval_sec,
     )
 
     @asynccontextmanager
@@ -57,6 +66,7 @@ def create_app(
                 asyncio.create_task(worker_loop(f"worker-{i}", ctx), name=f"worker-{i}")
                 for i in range(ctx.worker_concurrency)
             ]
+            ctx.worker_tasks.append(asyncio.create_task(daily_sweep(ctx), name="daily-sweep"))
         yield
         ctx.stopped = True
         for task in ctx.worker_tasks:
@@ -87,6 +97,8 @@ def app_from_env(*, data_dir: Path | None = None) -> FastAPI:
         max_run=max_run,
         max_llm=int(os.environ.get("MAX_LLM_INFLIGHT", "1")),
         max_embed=int(os.environ.get("MAX_EMBED_INFLIGHT", "4")),
+        max_llm_calls=int(os.environ.get("JOB_LLM_BUDGET", "20")),
+        max_embed_calls=int(os.environ.get("JOB_EMBED_BUDGET", "4")),
     )
     chat = chat_from_env()
     embed = embed_from_env()
@@ -96,6 +108,6 @@ def app_from_env(*, data_dir: Path | None = None) -> FastAPI:
         chat=chat,
         embed=embed,
         run_workers=True,
-        llm_ok=True if chat is not None else None,
-        embed_ok=True if embed is not None else None,
+        llm_probe=llm_probe_from_env(),
+        embed_probe=embed_probe_from_env(),
     )

@@ -63,11 +63,18 @@ async def _execute(job: Job, ctx: AppContext) -> None:
             on_progress=slots.progress,
         ).run(source, dest, actor_id=str(owner.get("actor_id") or "anonymous"))
 
+    hb = asyncio.create_task(_heartbeat(ctx, job.audit_id), name=f"hb-{job.audit_id}")
     try:
         report = await asyncio.to_thread(_run)
     except Exception:
         await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="internal")
         return
+    finally:
+        hb.cancel()
+        try:
+            await hb
+        except asyncio.CancelledError:
+            pass
     stage = "done"
     error = None
     meta_path = dest / "meta.json"
@@ -76,6 +83,22 @@ async def _execute(job: Job, ctx: AppContext) -> None:
         stage = str(meta.get("stage") or stage)
         error = meta.get("error")
     await ctx.bus.set_terminal(job.audit_id, report.status, stage=stage, error=error)
+
+
+async def _heartbeat(ctx: AppContext, audit_id: str) -> None:
+    interval = max(ctx.heartbeat_sec, 0.01)
+    while True:
+        await asyncio.sleep(interval)
+        await ctx.bus.touch_audit(audit_id)
+
+
+async def daily_sweep(ctx: AppContext) -> None:
+    interval = max(ctx.sweep_interval_sec, 0.01)
+    while not ctx.stopped:
+        await asyncio.sleep(interval)
+        if ctx.stopped:
+            break
+        await sweep_expired(ctx)
 
 
 async def reconcile(ctx: AppContext) -> None:
