@@ -1,84 +1,113 @@
 # cashflow-audit
 
-Аудит Excel CashFlow-моделей (`.xlsx` / `.xlsm`). Файл не меняется. Детекторы — код; LLM не парсит книгу и не ищет ошибки: только неоднозначный маппинг статей и текст карточки.
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+[![uv](https://img.shields.io/badge/packaging-uv-de5fe9.svg)](https://docs.astral.sh/uv/)
 
-Выход — `report.json`: находка с `cell_refs` из IR, доказательство, влияние, рекомендация.
+Audit Excel CashFlow workbooks. The file is never modified.
 
+Детекторы — код. LLM не парсит книгу и не ищет ошибки: только неоднозначный маппинг статей и текст карточки. Находка без `cell_refs` из IR в отчёт не попадает.
+
+```mermaid
+flowchart LR
+  xlsx[xlsx / xlsm] --> parse --> compile --> layout --> series
+  series --> mapping --> check --> lineage --> report[report.json]
 ```
-parse → compile → layout → series → mapping → check → lineage → explain+report
-```
 
-LLM и embeddings — **отдельные** внешние OpenAI-compatible HTTP-сервисы, не в поде. Без них аудит всё равно завершается (`degraded` / `needs_input`, шаблоны + глоссарий).
+## Why
 
-## Требования
+Most spreadsheet tooling helps you *build* a model. This one *audits* a model you already have: formula graph, period axes, identity checks, hidden inputs, hardcodes.
 
-- Python 3.12+
-- [uv](https://docs.astral.sh/uv/)
-- Redis только для `serve` (sidecar в compose)
+Optional LLM and embeddings are **separate** OpenAI-compatible HTTP services (not in the pod). Without them the run still finishes (`degraded` / `needs_input`) using templates and the HITL glossary.
+
+## Features
+
+| | |
+|---|---|
+| Deterministic detectors | Excel errors, IFERROR masking, circular refs, formula drift, identity I1/I3, hidden inputs |
+| Citation | Every finding cites IR cells (`Sheet!A1`) |
+| Idempotent | Same actor + same bytes → same `audit_id`; skip stages if artifacts exist |
+| Isolation | `X-Actor-Id` keys audits and glossary; no anonymous HTTP |
+| No rewrite | Workbook is read-only |
+
+## Quick start
 
 ```bash
 uv sync
-uv run pytest
-uv run ruff check src tests
+cp .env.example .env          # optional: LLM_* and EMBEDDING_*
+uv run cashflow-audit audit ./model.xlsx -o ./report.json
 ```
 
-## Конфиг
+Python 3.12+ and [uv](https://docs.astral.sh/uv/). Redis is **not** required for CLI.
 
-Скопировать [`.env.example`](.env.example) → `.env` (файл в gitignore). Все ключи читает `Settings` (`src/cashflow_audit/settings.py`).
+## Usage
 
-| Слой | Примеры | Где |
-|---|---|---|
-| Секреты и URL моделей | `REDIS_URL`, `LLM_*`, `EMBEDDING_*` | env / `.env` |
-| Кнопки процесса | `DATA_DIR`, слоты, TTL, бюджеты | тот же Settings, дефолты в коде |
-| Правила аудита | cosine, zip-caps, CSR, `taxonomy.yaml` | исходники, не env |
-
-`LLM_BASE_URL` и `EMBEDDING_BASE_URL` независимы: эмбедер не берёт URL чата.
-
-## CLI
-
-Без Redis, `actor_id=anonymous`:
+### CLI
 
 ```bash
 uv run cashflow-audit audit ./model.xlsx -o ./report.json --data-dir ./data
 ```
 
-Артефакты: `data/audits/{audit_id}/`. Повтор того же файла пропускает готовые стадии (LLM не зовётся, если есть `mapping.json` / `report.json`).
+`actor_id=anonymous`. Artifacts land in `data/audits/{audit_id}/`. A second run of the same file skips completed stages and does not call LLM if `mapping.json` / `report.json` already exist.
 
-## HTTP
+### HTTP
 
-Нужен Redis. Заголовок `X-Actor-Id` обязателен.
+Needs Redis. Header `X-Actor-Id` is required (`400 missing_actor` if missing).
 
 ```bash
 uv run cashflow-audit serve --host 127.0.0.1 --port 8080
 ```
 
-| Метод | Путь |
-|---|---|
-| GET | `/healthz` |
-| GET | `/readyz` |
-| POST | `/v1/audits` (multipart `file`) |
-| GET | `/v1/audits/{id}` |
-| GET | `/v1/audits/{id}/report` |
-| POST | `/v1/audits/{id}/answers` |
+```http
+POST /v1/audits                    # multipart field file=
+GET  /v1/audits/{id}               # poll; Retry-After: 2 while queued/running
+GET  /v1/audits/{id}/report
+POST /v1/audits/{id}/answers       # HITL → re-queue from mapping
+GET  /healthz
+GET  /readyz
+```
 
-Схема и коды: [`docs/architecture/api.md`](docs/architecture/api.md).
+Request/response bodies: [`docs/architecture/api.md`](docs/architecture/api.md).
 
-## Docker
+### Docker
 
-В образе нет весов LLM/embed. Redis — sidecar, модели — с хоста через env.
+Redis sidecar only. LLM and embeddings stay on the host via env.
 
 ```bash
-cp .env.example .env   # заполнить LLM_* и EMBEDDING_*, если есть
+cp .env.example .env
 docker compose up --build
 ```
 
-`REDIS_URL` внутри сети — `redis://redis:6379/0`. Данные аудитов — volume `/data`.
+Inside the compose network `REDIS_URL` is `redis://redis:6379/0`. Audit data is volume `/data`.
 
-## Документы
+## Configuration
 
-- Требования: [`docs/требования.md`](docs/требования.md)
-- Архитектура: [`docs/architecture/plan.md`](docs/architecture/plan.md)
-- HTTP API: [`docs/architecture/api.md`](docs/architecture/api.md)
-- Правила разработки: [`AGENTS.md`](AGENTS.md)
+Copy [`.env.example`](.env.example) to `.env` (gitignored). Loaded by `Settings` in [`src/cashflow_audit/settings.py`](src/cashflow_audit/settings.py).
 
-Apache-2.0.
+| Layer | Examples | Stored in |
+|---|---|---|
+| Secrets and model URLs | `REDIS_URL`, `LLM_*`, `EMBEDDING_*` | env / `.env` |
+| Process knobs | `DATA_DIR`, slots, TTL, budgets | same Settings, code defaults |
+| Audit rules | cosine, zip caps, CSR, `taxonomy.yaml` | source, not env |
+
+`LLM_BASE_URL` and `EMBEDDING_BASE_URL` are independent. Embed never falls back to the chat URL.
+
+`serve` requires `REDIS_URL`. Omit `LLM_*` / `EMBEDDING_*` to run without those ports.
+
+## Tests
+
+```bash
+uv run pytest
+uv run ruff check src tests
+```
+
+## Documentation
+
+- [Requirements](docs/требования.md)
+- [Architecture](docs/architecture/plan.md)
+- [HTTP API](docs/architecture/api.md)
+- [Agent / contributor rules](AGENTS.md)
+
+## License
+
+[Apache License 2.0](LICENSE)
