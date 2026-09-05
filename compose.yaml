@@ -1,0 +1,48 @@
+# Redis is the only sidecar. LLM and embeddings stay outside the pod:
+# copy .env.example → .env (or export) LLM_* and EMBEDDING_* separately.
+# Compose reads host .env for interpolation; REDIS_URL inside the network
+# always points at the sidecar, not 127.0.0.1 from .env.example.
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    restart: unless-stopped
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATA_DIR: /data
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.6-27b-fp8}
+      EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
+      EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
+      MAX_INFLIGHT: ${MAX_INFLIGHT:-4}
+      MAX_LLM_INFLIGHT: ${MAX_LLM_INFLIGHT:-1}
+      MAX_EMBED_INFLIGHT: ${MAX_EMBED_INFLIGHT:-4}
+      LLM_SLOT_WAIT_SEC: ${LLM_SLOT_WAIT_SEC:-120}
+      JOB_TIMEOUT_SEC: ${JOB_TIMEOUT_SEC:-3600}
+      AUDIT_TTL_DAYS: ${AUDIT_TTL_DAYS:-14}
+      JOB_LLM_BUDGET: ${JOB_LLM_BUDGET:-20}
+      JOB_EMBED_BUDGET: ${JOB_EMBED_BUDGET:-4}
+    volumes:
+      - audit-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
+volumes:
+  audit-data:
