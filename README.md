@@ -20,6 +20,73 @@ Most spreadsheet tooling helps you *build* a model. This one *audits* a model yo
 
 Optional LLM and embeddings are **separate** OpenAI-compatible HTTP services (not in the pod). Without them the run still finishes (`degraded` / `needs_input`) using templates and the HITL glossary.
 
+## Input
+
+| Вход | Как | Обязателен |
+|---|---|---|
+| Книга CashFlow | `.xlsx` / `.xlsm` (CLI путь или HTTP multipart `file`) | да |
+| Кто пользователь | HTTP: заголовок `X-Actor-Id`. CLI: `anonymous` | да для HTTP |
+| Ответы HITL | `POST .../answers` `{ question_id, concept_id }` | нет, только если в отчёте `questions` |
+| LLM / embeddings | env `LLM_*` и отдельно `EMBEDDING_*` | нет |
+
+Не принимаем: `.xls`, `.xlsb`, пароль, URL внешней книги, правки ячеек. Потолок тела ≈ 250 МиБ.
+
+`audit_id` = sha256(`actor_id` + `:` + sha256 файла). Один человек + те же байты → тот же id. Разные люди с одним файлом → разные аудиты.
+
+## Output
+
+Снаружи два объекта. Parquet, mapping, lineage по HTTP не отдаём.
+
+1. **Статус job** — `queued` / `running` / `succeeded` / `needs_input` / `degraded` / `failed`.
+2. **Отчёт** `report.json` — когда файл есть на диске.
+
+Канон отчёта: `findings[]` (ячейка, доказательство, метрики, влияние, рекомендация; файл не меняли) и `questions[]`. Находка без `cell_refs` из IR в ответ не попадает. `sha256` в отчёте — хеш содержимого книги, не `audit_id`.
+
+CLI пишет отчёт в `-o`. HTTP: poll статуса, затем `GET .../report`.
+
+## Interaction
+
+```mermaid
+sequenceDiagram
+  actor User
+  participant API
+  participant Redis
+  participant Worker
+  participant Disk
+  participant LLM as LLM HTTP
+  participant Emb as Embed HTTP
+
+  User->>API: POST /v1/audits + xlsx + X-Actor-Id
+  API->>Disk: source.xlsx, owner.json
+  API->>Redis: queue audit_id
+  API-->>User: 202 { audit_id, queued }
+
+  loop poll 1–2s
+    User->>API: GET /v1/audits/{id}
+    API-->>User: queued / running + Retry-After: 2
+  end
+
+  Redis->>Worker: claim
+  Worker->>Disk: parse … check … lineage
+  opt mapping ambiguous / explain prose
+    Worker->>Emb: labels only
+    Worker->>LLM: templates + labels, no cached_value
+  end
+  Worker->>Disk: report.json + meta.json
+  User->>API: GET /v1/audits/{id}/report
+  API-->>User: 200 findings + questions
+
+  opt needs_input
+    User->>API: POST /v1/audits/{id}/answers
+    API->>Disk: glossary += answers; drop mapping…meta
+    API->>Redis: queue again (skip stops at mapping)
+  end
+```
+
+Повторный POST того же файла тем же актёром после готового отчёта — сразу `200` + `report_url`, без очереди и без LLM.
+
+CLI тот же `Pipeline.run`, без Redis: файл → `report.json`.
+
 ## Features
 
 | | |
