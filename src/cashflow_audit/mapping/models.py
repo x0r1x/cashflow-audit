@@ -38,7 +38,7 @@ class MappedRow(BaseModel):
 
 class MappingQuestion(BaseModel):
     id: str
-    kind: Literal["mapping"] = "mapping"
+    kind: Literal["mapping", "identity_gap"] = "mapping"
     prompt: str
     cell_refs: list[str]
     options: list[str]
