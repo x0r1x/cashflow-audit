@@ -27,15 +27,25 @@ class FakeEmbed:
 
 
 class FakeChat:
-    def __init__(self, concept_id: str = "unknown") -> None:
+    def __init__(
+        self,
+        concept_id: str = "unknown",
+        payload: dict[str, Any] | None = None,
+    ) -> None:
         self.concept_id = concept_id
+        self.payload = payload
         self.calls = 0
         self.messages_seen: list[list[dict[str, Any]]] = []
 
     def complete_json(self, schema: type[BaseModel], messages: list) -> BaseModel:
         self.calls += 1
         self.messages_seen.append(list(messages))
-        return schema.model_validate({"concept_id": self.concept_id})
+        if self.payload is not None:
+            return schema.model_validate(self.payload)
+        fields = schema.model_fields
+        if "concept_id" in fields:
+            return schema.model_validate({"concept_id": self.concept_id})
+        return schema.model_validate({})
 
 
 class GrantSlots:
