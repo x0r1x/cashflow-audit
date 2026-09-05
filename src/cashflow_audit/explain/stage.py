@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from cashflow_audit.checkers.models import CheckDocument
@@ -18,6 +17,9 @@ def explain_workbook(
     *,
     chat: ChatPort | None = None,
     slots: SlotGate | None = None,
+    slot_timeout_sec: float = 120.0,
+    llm_model: str | None = None,
+    embedding_model: str | None = None,
 ) -> Report:
     report_path = dest_dir / "report.json"
     meta_path = dest_dir / "meta.json"
@@ -41,7 +43,6 @@ def explain_workbook(
         for row in read_parquet(dest_dir / "ir" / "cells.parquet")
     }
     embeddings_used = any(row.source == "embed" for row in mapping.rows)
-    timeout = float(os.environ.get("LLM_SLOT_WAIT_SEC", "120"))
     report = compose_report(
         candidates=check.candidates,
         lineage=lineage,
@@ -54,9 +55,9 @@ def explain_workbook(
         audit_id=dest_dir.name,
         source_filename=str(owner.get("source_filename") or ""),
         sha256=str(owner.get("content_sha256") or ""),
-        llm_model=os.environ.get("LLM_MODEL"),
-        embedding_model=os.environ.get("EMBEDDING_MODEL"),
-        slot_timeout_sec=timeout,
+        llm_model=llm_model,
+        embedding_model=embedding_model,
+        slot_timeout_sec=slot_timeout_sec,
     )
     write_json(report_path, report.model_dump(mode="json"))
     write_json(

@@ -13,7 +13,7 @@
 | Книга CashFlow | `.xlsx` / `.xlsm`, multipart поле `file` | да |
 | Кто пользователь | заголовок `X-Actor-Id` | да для HTTP (`400 missing_actor` если нет). CLI: `anonymous` |
 | Ответы аналитика (HITL) | JSON к уже существующему аудиту | нет, только если в отчёте `questions` |
-| Конфиг процесса | env: `REDIS_URL`, `WORKER_CONCURRENCY`, `MAX_INFLIGHT`, `JOB_TIMEOUT_SEC`, `AUDIT_TTL_DAYS`, `JOB_LLM_BUDGET` (default 20), `JOB_EMBED_BUDGET` (default 4), опционально `LLM_*`, `EMBEDDING_*` | Redis для `serve`. LLM и embeddings — внешние HTTP (`LLM_BASE_URL` / `EMBEDDING_BASE_URL`), не в поде |
+| Конфиг процесса | env / `.env` → `Settings` (см. `.env.example`): `REDIS_URL` (обязателен для `serve`), `DATA_DIR`, слоты, TTL, бюджеты; опционально отдельные `LLM_*` и `EMBEDDING_*` | Redis для `serve`. LLM и embeddings — внешние HTTP, не в поде. Пороги детекторов в коде, не в env |
 
 Не принимаем: `.xls`, `.xlsb`, пароль, URL внешней книги, правки ячеек.
 

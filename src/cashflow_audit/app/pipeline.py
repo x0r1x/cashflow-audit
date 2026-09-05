@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -20,6 +19,7 @@ from cashflow_audit.mapping.stage import mapping_workbook
 from cashflow_audit.parse.stage import parse_workbook
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, SlotGate
 from cashflow_audit.series.stage import series_workbook
+from cashflow_audit.settings import Settings
 from cashflow_audit.store.fs import write_json
 from cashflow_audit.store.glossary import load_glossary
 
@@ -37,6 +37,7 @@ class Pipeline:
         slots: SlotGate | None = None,
         glossary_dir: Path | None = None,
         timeout_sec: float | None = None,
+        settings: Settings | None = None,
         clock: Callable[[], float] = time.monotonic,
         on_progress: Callable[[str], None] | None = None,
     ) -> None:
@@ -44,10 +45,16 @@ class Pipeline:
         self.chat = chat
         self.slots = slots
         self.glossary_dir = glossary_dir
+        self.settings = settings
         self.timeout_sec = (
             timeout_sec
             if timeout_sec is not None
-            else float(os.environ.get("JOB_TIMEOUT_SEC", "3600"))
+            else (settings.job_timeout_sec if settings is not None else 3600.0)
+        )
+        self.slot_timeout_sec = settings.llm_slot_wait_sec if settings is not None else 120.0
+        self.llm_model = settings.llm_model if settings is not None else None
+        self.embedding_model = (
+            settings.embedding_model or "" if settings is not None else ""
         )
         self.clock = clock
         self.on_progress = on_progress
@@ -90,13 +97,22 @@ class Pipeline:
                 slots=self.slots,
                 glossary=glossary,
                 cache_path=cache_path,
+                slot_timeout_sec=self.slot_timeout_sec,
+                embedding_model=self.embedding_model,
             )
             stage = self._enter("check")
             check_workbook(dest_dir, self.catalog)
             stage = self._enter("lineage")
             lineage_workbook(dest_dir)
             stage = self._enter("explain")
-            return explain_workbook(dest_dir, chat=self.chat, slots=self.slots)
+            return explain_workbook(
+                dest_dir,
+                chat=self.chat,
+                slots=self.slots,
+                slot_timeout_sec=self.slot_timeout_sec,
+                llm_model=self.llm_model,
+                embedding_model=self.embedding_model or None,
+            )
         except PipelineTimeout:
             return _fail(dest_dir, owner, "timeout", stage, self.slots)
         except AuditError as exc:

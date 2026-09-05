@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from cashflow_audit.errors import PortError
 
 
@@ -18,12 +16,3 @@ class OpenAIEmbed:
             return [list(item.embedding) for item in response.data]
         except Exception as exc:
             raise PortError("embed failed") from exc
-
-
-def embed_from_env() -> OpenAIEmbed | None:
-    base = os.environ.get("EMBEDDING_BASE_URL")
-    key = os.environ.get("EMBEDDING_API_KEY")
-    model = os.environ.get("EMBEDDING_MODEL")
-    if not base or not key or not model:
-        return None
-    return OpenAIEmbed(base_url=base, api_key=key, model=model)

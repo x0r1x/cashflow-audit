@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
+from cashflow_audit.settings import Settings
 from cashflow_audit.store.disk import DiskStore
 
 MAX_UPLOAD_BYTES = 250 * 1024 * 1024
@@ -26,6 +27,7 @@ class AppContext:
     ttl_days: int = 14
     heartbeat_sec: float = 30.0
     sweep_interval_sec: float = 86400.0
+    settings: Settings | None = None
     stopped: bool = False
     worker_tasks: list = field(default_factory=list)
 

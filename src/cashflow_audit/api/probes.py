@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import os
-
 import httpx
+
+from cashflow_audit.settings import Settings
 
 
 async def probe_openai(base_url: str | None, api_key: str | None) -> bool | None:
@@ -19,17 +19,15 @@ async def probe_openai(base_url: str | None, api_key: str | None) -> bool | None
         return False
 
 
-def llm_probe_from_env():
+def llm_probe_from_settings(settings: Settings):
     async def _probe() -> bool | None:
-        return await probe_openai(os.environ.get("LLM_BASE_URL"), os.environ.get("LLM_API_KEY"))
+        return await probe_openai(settings.llm_base_url, settings.llm_api_key)
 
     return _probe
 
 
-def embed_probe_from_env():
+def embed_probe_from_settings(settings: Settings):
     async def _probe() -> bool | None:
-        return await probe_openai(
-            os.environ.get("EMBEDDING_BASE_URL"), os.environ.get("EMBEDDING_API_KEY")
-        )
+        return await probe_openai(settings.embedding_base_url, settings.embedding_api_key)
 
     return _probe

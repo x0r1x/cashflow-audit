@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from typing import Annotated
 
@@ -11,7 +10,7 @@ from cashflow_audit.adapters.slots import AlwaysGrant
 from cashflow_audit.app.ids import audit_id_for, sha256_bytes
 from cashflow_audit.app.pipeline import Pipeline
 from cashflow_audit.errors import AuditError
-from cashflow_audit.ports.protocols import ChatPort, EmbedPort
+from cashflow_audit.settings import Settings
 from cashflow_audit.store.fs import atomic_write_bytes, write_json
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
@@ -26,7 +25,8 @@ def audit(
     if source.suffix.lower() not in {".xlsx", ".xlsm"}:
         typer.echo("ожидается .xlsx или .xlsm", err=True)
         raise typer.Exit(code=1)
-    root = data_dir or Path(os.environ.get("DATA_DIR", "data"))
+    settings = Settings()
+    root = data_dir or settings.data_dir
     data = source.read_bytes()
     if not data:
         typer.echo("empty_file", err=True)
@@ -49,13 +49,13 @@ def audit(
                 "source_filename": source.name,
             },
         )
-    chat, embed = _optional_ports()
     try:
         report = Pipeline(
-            chat=chat,
-            embed=embed,
+            chat=settings.chat(),
+            embed=settings.embed(),
             slots=AlwaysGrant(),
             glossary_dir=root / "glossary",
+            settings=settings,
         ).run(dest_source, dest, actor_id=actor)
     except AuditError as exc:
         typer.echo(exc.code, err=True)
@@ -76,10 +76,3 @@ def serve(
     from cashflow_audit.api.app import app_from_env
 
     uvicorn.run(app_from_env(data_dir=data_dir), host=host, port=port)
-
-
-def _optional_ports() -> tuple[ChatPort | None, EmbedPort | None]:
-    from cashflow_audit.adapters.openai_chat import chat_from_env
-    from cashflow_audit.adapters.openai_embed import embed_from_env
-
-    return chat_from_env(), embed_from_env()

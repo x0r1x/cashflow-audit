@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 
 from cashflow_audit.layout.models import Layout
@@ -21,6 +20,8 @@ def mapping_workbook(
     glossary: dict[tuple[str, str], str] | None = None,
     taxonomy: list[Concept] | None = None,
     cache_path: Path | None = None,
+    slot_timeout_sec: float = 120.0,
+    embedding_model: str = "",
 ) -> MappingDocument:
     path = dest_dir / "mapping.json"
     if path.exists():
@@ -32,7 +33,6 @@ def mapping_workbook(
     ir_cells = dest_dir / "ir" / "cells.parquet"
     if ir_cells.exists():
         cells = read_parquet(ir_cells)
-    timeout = float(os.environ.get("LLM_SLOT_WAIT_SEC", "120"))
     doc = map_layout(
         layout,
         taxonomy=taxonomy or load_taxonomy(),
@@ -41,9 +41,9 @@ def mapping_workbook(
         chat=chat,
         slots=slots,
         cells=cells,
-        slot_timeout_sec=timeout,
+        slot_timeout_sec=slot_timeout_sec,
         cache_path=cache_path,
-        embedding_model=os.environ.get("EMBEDDING_MODEL", ""),
+        embedding_model=embedding_model,
     )
     write_json(path, doc.model_dump(mode="json"))
     return doc

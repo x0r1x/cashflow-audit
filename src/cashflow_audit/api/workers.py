@@ -60,6 +60,7 @@ async def _execute(job: Job, ctx: AppContext) -> None:
             chat=ctx.chat,
             slots=slots,
             glossary_dir=ctx.store.glossary_dir(),
+            settings=ctx.settings,
             on_progress=slots.progress,
         ).run(source, dest, actor_id=str(owner.get("actor_id") or "anonymous"))
 

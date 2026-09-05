@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -10,11 +9,12 @@ from fastapi import FastAPI
 
 from cashflow_audit.api.context import MAX_UPLOAD_BYTES, AppContext
 from cashflow_audit.api.errors import ApiError, api_error_handler, audit_error_handler
-from cashflow_audit.api.probes import embed_probe_from_env, llm_probe_from_env
+from cashflow_audit.api.probes import embed_probe_from_settings, llm_probe_from_settings
 from cashflow_audit.api.routes import router
 from cashflow_audit.api.workers import daily_sweep, reconcile, sweep_expired, worker_loop
 from cashflow_audit.errors import AuditError
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
+from cashflow_audit.settings import Settings
 from cashflow_audit.store.disk import DiskStore
 
 
@@ -34,11 +34,12 @@ def create_app(
     ttl_days: int | None = None,
     heartbeat_sec: float = 30.0,
     sweep_interval_sec: float = 86400.0,
+    settings: Settings | None = None,
 ) -> FastAPI:
     if worker_concurrency is None:
-        worker_concurrency = int(os.environ.get("WORKER_CONCURRENCY", "4"))
+        worker_concurrency = settings.worker_concurrency if settings is not None else 4
     if ttl_days is None:
-        ttl_days = int(os.environ.get("AUDIT_TTL_DAYS", "14"))
+        ttl_days = settings.audit_ttl_days if settings is not None else 14
     ctx = AppContext(
         store=DiskStore(data_root),
         bus=bus,
@@ -54,6 +55,7 @@ def create_app(
         ttl_days=ttl_days,
         heartbeat_sec=heartbeat_sec,
         sweep_interval_sec=sweep_interval_sec,
+        settings=settings,
     )
 
     @asynccontextmanager
@@ -83,31 +85,25 @@ def create_app(
 
 
 def app_from_env(*, data_dir: Path | None = None) -> FastAPI:
-    from cashflow_audit.adapters.openai_chat import chat_from_env
-    from cashflow_audit.adapters.openai_embed import embed_from_env
     from cashflow_audit.adapters.redis_jobbus import RedisJobBus
 
-    redis_url = os.environ.get("REDIS_URL")
-    if not redis_url:
-        raise RuntimeError("REDIS_URL required for serve")
-    root = data_dir or Path(os.environ.get("DATA_DIR", "data"))
-    max_run = int(os.environ.get("MAX_INFLIGHT", os.environ.get("WORKER_CONCURRENCY", "4")))
+    settings = Settings()
+    root = data_dir or settings.data_dir
     bus = RedisJobBus.from_url(
-        redis_url,
-        max_run=max_run,
-        max_llm=int(os.environ.get("MAX_LLM_INFLIGHT", "1")),
-        max_embed=int(os.environ.get("MAX_EMBED_INFLIGHT", "4")),
-        max_llm_calls=int(os.environ.get("JOB_LLM_BUDGET", "20")),
-        max_embed_calls=int(os.environ.get("JOB_EMBED_BUDGET", "4")),
+        settings.require_redis(),
+        max_run=settings.inflight,
+        max_llm=settings.max_llm_inflight,
+        max_embed=settings.max_embed_inflight,
+        max_llm_calls=settings.job_llm_budget,
+        max_embed_calls=settings.job_embed_budget,
     )
-    chat = chat_from_env()
-    embed = embed_from_env()
     return create_app(
         data_root=root,
         bus=bus,
-        chat=chat,
-        embed=embed,
+        chat=settings.chat(),
+        embed=settings.embed(),
         run_workers=True,
-        llm_probe=llm_probe_from_env(),
-        embed_probe=embed_probe_from_env(),
+        settings=settings,
+        llm_probe=llm_probe_from_settings(settings),
+        embed_probe=embed_probe_from_settings(settings),
     )

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 from pydantic import BaseModel
 
 from cashflow_audit.errors import PortError
@@ -25,12 +23,3 @@ class OpenAIChat:
             return schema.model_validate_json(content)
         except Exception as exc:
             raise PortError("chat failed") from exc
-
-
-def chat_from_env() -> OpenAIChat | None:
-    base = os.environ.get("LLM_BASE_URL")
-    key = os.environ.get("LLM_API_KEY")
-    if not base or not key:
-        return None
-    model = os.environ.get("LLM_MODEL", "qwen3.6-27b-fp8")
-    return OpenAIChat(base_url=base, api_key=key, model=model)
