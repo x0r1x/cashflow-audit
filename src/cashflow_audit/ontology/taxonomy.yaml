@@ -1,0 +1,49 @@
+concepts:
+  - id: pnl.revenue
+    labels: [Revenue, Выручка, Sales, Sales revenue]
+  - id: pnl.gmv
+    labels: [GMV, Gross merchandise value]
+  - id: pnl.cogs
+    labels: [COGS, Cost of sales, Себестоимость]
+  - id: pnl.gross_profit
+    labels: [Gross profit, Валовая прибыль]
+  - id: pnl.opex
+    labels: [OPEX, Operating expenses, Операционные расходы]
+  - id: pnl.ebitda
+    labels: [EBITDA]
+  - id: pnl.ebit
+    labels: [EBIT, Operating profit]
+  - id: pnl.da
+    labels: [D&A, Depreciation, Амортизация]
+  - id: pnl.interest
+    labels: [Interest expense, Проценты]
+  - id: pnl.tax
+    labels: [Income tax, Налог]
+  - id: pnl.net_income
+    labels: [Net income, Чистая прибыль]
+  - id: bs.assets_total
+    labels: [Total assets, Assets, Итого активы, Активы]
+  - id: bs.assets_current
+    labels: [Current assets, Оборотные активы]
+  - id: bs.liabilities
+    labels: [Liabilities, Обязательства]
+  - id: bs.equity
+    labels: [Equity, Капитал]
+  - id: bs.cash
+    labels: [Cash, Денежные средства]
+  - id: bs.debt
+    labels: [Debt, Долг, Borrowings]
+  - id: bs.ar
+    labels: [Accounts receivable, Дебиторская задолженность]
+  - id: bs.ap
+    labels: [Accounts payable, Кредиторская задолженность]
+  - id: bs.inventory
+    labels: [Inventory, Запасы]
+  - id: bs.retained_earnings
+    labels: [Retained earnings, Нераспределённая прибыль]
+  - id: cf.cfo
+    labels: [CFO, Cash from operations]
+  - id: cf.capex
+    labels: [CAPEX, Capital expenditure]
+  - id: cf.dividends
+    labels: [Dividends, Дивиденды]

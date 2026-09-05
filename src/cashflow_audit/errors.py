@@ -6,3 +6,7 @@ class AuditError(Exception):
         self.code = code
         self.detail = detail
         super().__init__(code if not detail else f"{code}: {detail}")
+
+
+class PortError(Exception):
+    """Embed/Chat/JobBus failed; pipeline degrades instead of crashing."""

@@ -9,6 +9,7 @@ dependencies = [
     "duckdb>=1.1",
     "lxml>=5.3",
     "pydantic>=2.9",
+    "pyyaml>=6.0.3",
     "scipy>=1.18.1",
 ]
 
@@ -24,6 +25,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/cashflow_audit"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/cashflow_audit/ontology/taxonomy.yaml" = "cashflow_audit/ontology/taxonomy.yaml"
 
 [tool.uv]
 default-groups = ["dev"]
