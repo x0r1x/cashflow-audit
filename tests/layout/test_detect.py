@@ -1,0 +1,116 @@
+from __future__ import annotations
+
+from cashflow_audit.layout.detect import detect_layout
+from cashflow_audit.parse.a1 import parse_addr
+
+
+def _c(
+    sheet: str,
+    addr: str,
+    value: str | None,
+    *,
+    hidden: bool = False,
+    formula: str | None = None,
+) -> dict:
+    col, row = parse_addr(addr)
+    return {
+        "sheet": sheet,
+        "row": row,
+        "col": col,
+        "addr": addr,
+        "cached_value": value,
+        "hidden": hidden,
+        "formula_raw": formula,
+        "formula_template": None,
+        "unparsed": False,
+        "number_format": None,
+        "comment": None,
+    }
+
+
+def test_two_axes_on_one_sheet_become_two_blocks() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "2023"),
+        _c("P&L", "C1", "2024E"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "100"),
+        _c("P&L", "C2", "110"),
+        _c("P&L", "A10", "Item"),
+        _c("P&L", "B10", "1 кв. 2025"),
+        _c("P&L", "C10", "2 кв. 2025"),
+        _c("P&L", "A11", "Revenue"),
+        _c("P&L", "B11", "20"),
+        _c("P&L", "C11", "30"),
+    ]
+    layout = detect_layout(cells)
+    sheet = next(s for s in layout.sheets if s.name == "P&L")
+    assert len(sheet.blocks) == 2
+    roles_0 = [h.role for h in sheet.blocks[0].axis.headers]
+    assert roles_0 == ["historical", "forecast"]
+    assert all(h.role in {"historical", "forecast"} for h in sheet.blocks[1].axis.headers)
+    assert sheet.blocks[0].axis.headers[0].col == 2
+    assert "concept_id" not in sheet.blocks[0].rows[0].model_dump()
+
+
+def test_hidden_column_is_not_label_column() -> None:
+    cells = [
+        _c("Sheet1", "A1", "Secret", hidden=True),
+        _c("Sheet1", "B1", "Item"),
+        _c("Sheet1", "C1", "2023"),
+        _c("Sheet1", "D1", "2024E"),
+        _c("Sheet1", "A2", "hidden-label", hidden=True),
+        _c("Sheet1", "B2", "Revenue"),
+        _c("Sheet1", "C2", "1"),
+        _c("Sheet1", "D2", "2"),
+    ]
+    layout = detect_layout(cells)
+    block = layout.sheets[0].blocks[0]
+    assert block.label_col == 2
+    assert block.rows[0].label == "Revenue"
+
+
+def test_period_role_is_not_article_role() -> None:
+    cells = [
+        _c("BS", "A1", "Item"),
+        _c("BS", "B1", "2023"),
+        _c("BS", "C1", "2024E"),
+        _c("BS", "A2", "Assets"),
+        _c("BS", "B2", "10"),
+        _c("BS", "C2", "11"),
+    ]
+    layout = detect_layout(cells)
+    block = layout.sheets[0].blocks[0]
+    assert {h.role for h in block.axis.headers} <= {
+        "historical",
+        "forecast",
+        "stub",
+        "scenario",
+        "total",
+    }
+    for row in block.rows:
+        dumped = row.model_dump()
+        assert "concept_id" not in dumped
+        assert dumped.get("article_role") is None
+
+
+def test_check_row_is_marker_not_finding() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "2023"),
+        _c("P&L", "C1", "2024E"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "100"),
+        _c("P&L", "C2", "110"),
+        _c("P&L", "A3", "Проверка баланса"),
+        _c("P&L", "B3", "0"),
+        _c("P&L", "C3", "0"),
+    ]
+    layout = detect_layout(cells)
+    rows = layout.sheets[0].blocks[0].rows
+    checks = [r for r in rows if r.check_row]
+    assert len(checks) == 1
+    assert checks[0].label == "Проверка баланса"
+    dumped = layout.model_dump()
+    assert "findings" not in dumped
+    assert "candidates" not in dumped

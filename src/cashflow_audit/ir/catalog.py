@@ -22,6 +22,73 @@ class IrCatalog:
     def sql(self, query: str) -> Any:
         return self._con.execute(query)
 
+    def upsert_layout(
+        self,
+        *,
+        axis_headers: list[dict[str, Any]],
+        layout_rows: list[dict[str, Any]],
+    ) -> None:
+        self._con.execute("DROP TABLE IF EXISTS axis_headers")
+        self._con.execute("DROP TABLE IF EXISTS layout_rows")
+        self._con.execute(
+            """
+            CREATE TABLE axis_headers (
+                sheet VARCHAR,
+                block_id VARCHAR,
+                col INTEGER,
+                role VARCHAR,
+                header_text VARCHAR,
+                period_key VARCHAR
+            )
+            """
+        )
+        self._con.execute(
+            """
+            CREATE TABLE layout_rows (
+                sheet VARCHAR,
+                block_id VARCHAR,
+                row INTEGER,
+                label VARCHAR,
+                parent_row INTEGER,
+                check_row BOOLEAN,
+                label_col INTEGER,
+                indent INTEGER
+            )
+            """
+        )
+        if axis_headers:
+            self._con.executemany(
+                "INSERT INTO axis_headers VALUES (?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        h["sheet"],
+                        h["block_id"],
+                        h["col"],
+                        h["role"],
+                        h["header_text"],
+                        h["period_key"],
+                    )
+                    for h in axis_headers
+                ],
+            )
+        if layout_rows:
+            self._con.executemany(
+                "INSERT INTO layout_rows VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        r["sheet"],
+                        r["block_id"],
+                        r["row"],
+                        r["label"],
+                        r["parent_row"],
+                        r["check_row"],
+                        r["label_col"],
+                        r["indent"],
+                    )
+                    for r in layout_rows
+                ],
+            )
+
     def close(self) -> None:
         self._con.close()
 
