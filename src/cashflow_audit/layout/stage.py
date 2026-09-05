@@ -13,11 +13,15 @@ def layout_workbook(dest_dir: Path, catalog: IrCatalog | None = None) -> Layout:
     layout = detect_layout(cells)
     write_json(dest_dir / "layout.json", layout.model_dump(mode="json"))
     if catalog is not None:
-        catalog.upsert_layout(
-            axis_headers=_axis_rows(layout),
-            layout_rows=_row_rows(layout),
-        )
+        register_layout(layout, catalog)
     return layout
+
+
+def register_layout(layout: Layout, catalog: IrCatalog) -> None:
+    catalog.upsert_layout(
+        axis_headers=_axis_rows(layout),
+        layout_rows=_row_rows(layout),
+    )
 
 
 def _axis_rows(layout: Layout) -> list[dict]:

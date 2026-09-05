@@ -49,16 +49,16 @@ class FakeChat:
 
 
 class GrantSlots:
-    def acquire(self, kind: Literal["llm", "embed"], timeout_sec: float = 0) -> bool:
+    def acquire(self, kind: Literal["llm", "embed", "run"], timeout_sec: float = 0) -> bool:
         return True
 
-    def release(self, kind: Literal["llm", "embed"]) -> None:
+    def release(self, kind: Literal["llm", "embed", "run"]) -> None:
         return None
 
 
 class DenySlots:
-    def acquire(self, kind: Literal["llm", "embed"], timeout_sec: float = 0) -> bool:
+    def acquire(self, kind: Literal["llm", "embed", "run"], timeout_sec: float = 0) -> bool:
         return False
 
-    def release(self, kind: Literal["llm", "embed"]) -> None:
+    def release(self, kind: Literal["llm", "embed", "run"]) -> None:
         return None
