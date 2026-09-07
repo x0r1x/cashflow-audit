@@ -398,7 +398,7 @@ src/cashflow_audit/
 | Гибкость | Порты Chat/Embed; env слотов; taxonomy.yaml; HITL glossary | Нет force-recompute тех же байт; смена файла → новый hash. Нет смены модели внутри аудита |
 | Идемпотентность | POST по (actor, content); LLM не зовём при готовом mapping/report | Объяснения LLM недетерминированы — поэтому skip, а не повторный вызов |
 | Изоляция данных | audit_id от actor; 403; отдельный glossary | Нет шифрования at rest в спецификации этапа 1 (PVC/диск хоста) |
-| Наблюдаемость | stage в HASH; report.provenance | Нет метрик Prometheus в этапе 1 (можно добавить логи JSON `audit_id,stage`) |
+| Наблюдаемость | JSON stdout: audit_id, stage, event; /readyz cheap /models; CLI ping | Нет Prometheus в этапе 1 |
 | HOL к GPU | таймаут LLM-слота → degraded/шаблон | Пока 4 run ждут 1 GPU, parse других файлов всё равно идут на свободных run-слотах; если все 4 уже в mapping — очередь CPU стоит. Смягчение: `MAX_INFLIGHT` > типичного числа «застрявших в LLM» не лечит; таймаут обязателен |
 
 Память: 4 × крупная книга (CSR + DuckDB). Держать `MAX_INFLIGHT` по RAM пода (ориентир: не 4×1M ячеек на 4Gi без проверки).

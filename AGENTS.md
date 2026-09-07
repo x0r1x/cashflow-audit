@@ -44,6 +44,8 @@
 - В git только **синтетические** xlsx с cached values (`tests/fixtures/`).
 - В LLM/embeddings: лейблы и **шаблоны** формул, не `cached_value`.
 - Не логировать значения ячеек, формулы и имена файлов, по которым узнаётся клиент.
+- Логи JSON в stdout (`cashflow_audit.*`). Можно: audit_id, stage, event, http_status, model id из env, latency, exc_type, error codes.
+  Нельзя: cached_value, formula_raw, лейблы, промпты, source_filename, actor_id, api_key.
 - Сплит train/test/eval — по **книге** (entity), не случайные строки одной модели.
 - Пороги, таксономию, промпты не крутить на held-out. Eval pack не трогать, пока стадия не заморожена.
 - Глоссарий HITL книги A не копировать в eval той же книги.
@@ -228,7 +230,7 @@ uv run ruff check src tests
 | lineage | reverse BFS до output-concept; метрики карточки только отсюда; truncated range не притворяется полнотой |
 | explain | LLM не меняет detector/refs/metrics/impact; `cited_refs` ⊄ вход → шаблон; drop без ref ∈ IR; freeze не выше warning; questions union+дедуп |
 | pipeline | skip-таблица; HITL не трогает `owner.json` и IR; повторный run не зовёт LLM; `PortError` → не exception наружу; timeout отпускает слот |
-| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report 409 пока нет файла; статусный приоритет |
+| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report 409 пока нет файла; статусный приоритет; probe 401 и model_missing → degraded; ping CLI без сети |
 
 Инварианты, которые ловить в нескольких слоях:
 

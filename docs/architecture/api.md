@@ -58,7 +58,17 @@ GET /healthz HTTP/1.1
 
 ### `GET /readyz`
 
-Можно принимать трафик. Redis обязателен. LLM/embeddings — нет.
+Можно принимать трафик. Redis обязателен. LLM и embeddings не обязательны для приёма трафика.
+
+Проверка LLM/embeddings на /readyz — дешёвая:
+GET {LLM_BASE_URL}/models (timeout 2s) и наличие LLM_MODEL в data[].id.
+То же для embeddings. HTTP не 2xx, timeout, connect, model_missing → порт down.
+Не вызываем /chat/completions и /embeddings здесь (слот GPU).
+
+Unset (нет URL+ключа): поле llm/embeddings = false, status остаётся ready.
+Configured и down: status=degraded, HTTP 200, аудиты принимаем (шаблоны + глоссарий).
+
+Глубокий ping (POST ping, max_tokens=1) — старт процесса и CLI `cashflow-audit ping`.
 
 ```json
 {

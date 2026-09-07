@@ -113,9 +113,12 @@ uv run cashflow-audit audit ./model.xlsx -o ./report.json
 
 ```bash
 uv run cashflow-audit audit ./model.xlsx -o ./report.json --data-dir ./data
+uv run cashflow-audit ping   # Redis (если задан), GET /models + id, POST ping
 ```
 
 Актор — `anonymous`. Артефакты: `data/audits/{audit_id}/`. Повтор того же файла пропускает готовые стадии и не вызывает LLM, если уже есть `mapping.json` или `report.json`.
+
+Логи: JSON в stdout (`LOG_JSON=true` по умолчанию в `.env.example`), уровень — `LOG_LEVEL` (`INFO`).
 
 ### HTTP
 
