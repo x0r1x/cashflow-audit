@@ -1,5 +1,8 @@
 # LLM and embeddings are NOT in this image — they are external HTTP services.
-FROM ghcr.io/astral-sh/uv:0.12.10-python3.12-bookworm-slim AS builder
+# uv 0.12+ no longer publishes python3.12-bookworm-slim; copy the distroless
+# binary into bookworm so builder wheels match the runtime glibc.
+FROM python:3.12-slim-bookworm AS builder
+COPY --from=ghcr.io/astral-sh/uv:0.12.10 /uv /uvx /bin/
 WORKDIR /app
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=0
 COPY pyproject.toml uv.lock README.md LICENSE ./
