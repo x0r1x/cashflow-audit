@@ -257,6 +257,8 @@ async def _port_state(
     if probe is None:
         return None
     value = await probe()
+    if getattr(probe, "emits_probe_log", False):
+        return value
     prev = _LAST_PORT_STATE.get(port, _MISSING)
     if prev is _MISSING or prev != value:
         log_event(

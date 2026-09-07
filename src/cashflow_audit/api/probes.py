@@ -81,7 +81,7 @@ def _emit(
     snapshot = (result.ok, result.reachable, result.model_present, result.error, reason)
     prev = _LAST_PROBE.get(key)
     _LAST_PROBE[key] = snapshot
-    if level == logging.INFO and prev == snapshot:
+    if prev == snapshot:
         return result
     log_event(
         _LOGGER,
@@ -520,6 +520,7 @@ def llm_probe_from_settings(settings: Settings):
         )
         return result.ok
 
+    _probe.emits_probe_log = True  # type: ignore[attr-defined]
     return _probe
 
 
@@ -535,4 +536,5 @@ def embed_probe_from_settings(settings: Settings):
         )
         return result.ok
 
+    _probe.emits_probe_log = True  # type: ignore[attr-defined]
     return _probe

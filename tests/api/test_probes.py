@@ -142,12 +142,14 @@ def test_2xx_empty_or_unparsed_is_ok(caplog) -> None:
             "secret",
             "qwen",
             transport=_transport(empty),
+            port="empty",
         )
         unparsed_result = await probe_models(
             "http://llm/v1",
             "secret",
             "qwen",
             transport=_transport(unparsed),
+            port="unparsed",
         )
         assert empty_result.ok is True
         assert empty_result.model_present is None
@@ -190,6 +192,30 @@ def test_probe_info_only_when_result_changes(caplog) -> None:
         getattr(record, "event", None) == "probe_models" and record.levelno == logging.INFO
         for record in caplog.records
     )
+
+
+def test_probe_warning_only_when_result_changes(caplog) -> None:
+    async def _once() -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401, json={"error": "nope"})
+
+        await probe_models(
+            "http://llm/v1",
+            "secret",
+            "qwen",
+            transport=_transport(handler),
+            port="probe-warn",
+        )
+
+    caplog.set_level(logging.DEBUG, logger="cashflow_audit.api.probes")
+    asyncio.run(_once())
+    assert any(
+        getattr(record, "event", None) == "probe_models" and record.levelno == logging.WARNING
+        for record in caplog.records
+    )
+    caplog.clear()
+    asyncio.run(_once())
+    assert not any(getattr(record, "event", None) == "probe_models" for record in caplog.records)
 
 
 def test_probe_does_not_log_key_or_userinfo(caplog) -> None:
