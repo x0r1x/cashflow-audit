@@ -33,7 +33,9 @@
 - `cached_value` / сырые числа модели в промпт или эмбеддинги
 - `requirements.txt` как источник зависимостей
 
-Пакеты этапа 1: fastapi, uvicorn, typer, pydantic v2, lxml, duckdb, scipy.sparse, numpy, openai, redis (asyncio), pytest. Новое — только `uv add` и обоснование в коммите.
+Зависимости — только **uv** (`uv add`, `uv add --dev`, `uv lock`, `uv run`). Новые пакеты **разрешены**. В коммите — зачем пакет и почему не хватает stdlib / уже стоящего. Не ставить вместо ядра: Postgres, SQLite, Polars, DuckDB-сервер, S3 как store аудита.
+
+Ядро процесса (не закрытый список): fastapi, uvicorn, typer, pydantic v2, lxml, duckdb, scipy.sparse, numpy, openai, redis (asyncio), pytest. Логи, тест-хелперы (`pytest-asyncio` и т.п.), HTTP-клиенты — нормальный `uv add`.
 
 ---
 

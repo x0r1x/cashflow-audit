@@ -373,7 +373,11 @@ src/cashflow_audit/ontology/taxonomy.yaml
 
 ## 12. Стек и пакеты
 
+Источник зависимостей — `pyproject.toml` + `uv.lock`. Новые пакеты — `uv add` / `uv add --dev`. `requirements.txt` не заводим. Список ниже — ядро, не запрет на всё остальное.
+
 fastapi, uvicorn, typer, pydantic v2, lxml, duckdb, scipy.sparse, numpy, openai, redis (asyncio), pytest.
+
+Не подменять ядро: Postgres, SQLite, Polars, DuckDB-сервер. Prometheus не must этапа 1. Логи и тест-хелперы ставить можно.
 
 ```
 src/cashflow_audit/
