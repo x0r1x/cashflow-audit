@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import Annotated
@@ -7,9 +8,11 @@ from typing import Annotated
 import typer
 
 from cashflow_audit.adapters.slots import AlwaysGrant
+from cashflow_audit.api.probes import ProbeResult, run_connectivity_checks
 from cashflow_audit.app.ids import audit_id_for, sha256_bytes
 from cashflow_audit.app.pipeline import Pipeline
 from cashflow_audit.errors import AuditError
+from cashflow_audit.observability import configure_logging
 from cashflow_audit.settings import Settings
 from cashflow_audit.store.fs import atomic_write_bytes, write_json
 
@@ -26,6 +29,7 @@ def audit(
         typer.echo("ожидается .xlsx или .xlsm", err=True)
         raise typer.Exit(code=1)
     settings = Settings()
+    configure_logging(level=settings.log_level, json_output=settings.log_json)
     root = data_dir or settings.data_dir
     data = source.read_bytes()
     if not data:
@@ -75,4 +79,49 @@ def serve(
 
     from cashflow_audit.api.app import app_from_env
 
+    settings = Settings()
+    configure_logging(level=settings.log_level, json_output=settings.log_json)
     uvicorn.run(app_from_env(data_dir=data_dir), host=host, port=port)
+
+
+def _format_ping_line(name: str, result: ProbeResult, model: str | None) -> str:
+    if result.ok is None:
+        return f"{name}: unset"
+    if result.ok:
+        parts = [f"{name}: ok"]
+        if model:
+            parts.append(f"model={model}")
+        if result.latency_ms is not None:
+            parts.append(f"latency_ms={result.latency_ms}")
+        return " ".join(parts)
+    error = result.error or "down"
+    return f"{name}: down error={error}"
+
+
+async def _ping_exit(settings: Settings) -> int:
+    results = await run_connectivity_checks(settings)
+    by_name = dict(results)
+    llm = by_name.get("llm_ping") or ProbeResult(
+        configured=False, reachable=False, model_present=None, error="unset"
+    )
+    embed = by_name.get("embed_ping") or ProbeResult(
+        configured=False, reachable=False, model_present=None, error="unset"
+    )
+    redis = by_name.get("redis") or ProbeResult(
+        configured=False, reachable=False, model_present=None, error="unset"
+    )
+    typer.echo(_format_ping_line("llm", llm, settings.llm_model if llm.configured else None))
+    typer.echo(
+        _format_ping_line("embed", embed, settings.embedding_model if embed.configured else None)
+    )
+    typer.echo(_format_ping_line("redis", redis, None))
+    if any(result.ok is False for _, result in results):
+        return 1
+    return 0
+
+
+@app.command("ping")
+def ping_cmd() -> None:
+    settings = Settings()
+    configure_logging(level=settings.log_level, json_output=settings.log_json)
+    raise typer.Exit(code=asyncio.run(_ping_exit(settings)))

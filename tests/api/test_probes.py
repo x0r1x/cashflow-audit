@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 
 import httpx
 
 from cashflow_audit.api.probes import (
+    ProbeResult,
     embed_probe_from_settings,
     llm_probe_from_settings,
+    ping_chat,
+    ping_embed,
     probe_models,
+    run_connectivity_checks,
 )
 from cashflow_audit.settings import Settings
 
@@ -198,3 +203,115 @@ def test_embed_probe_unset_is_none(monkeypatch) -> None:
         assert await embed_probe_from_settings(settings)() is None
 
     asyncio.run(_go())
+
+
+def test_ping_chat_2xx() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/chat/completions")
+        body = json.loads(request.content)
+        assert body["messages"][0]["content"] == "ping"
+        assert body["max_tokens"] == 1
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    result = asyncio.run(ping_chat("http://llm/v1", "k", "qwen", transport=_transport(handler)))
+    assert result.ok is True
+
+
+def test_ping_embed_503() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={})
+
+    result = asyncio.run(ping_embed("http://emb/v1", "k", "e5", transport=_transport(handler)))
+    assert result.ok is False
+    assert result.error == "http_503"
+
+
+def test_ping_embed_2xx() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/embeddings")
+        body = json.loads(request.content)
+        assert body["input"] == ["ping"]
+        assert body["model"] == "e5"
+        return httpx.Response(200, json={"data": [{"embedding": [0.1]}]})
+
+    result = asyncio.run(ping_embed("http://emb/v1", "k", "e5", transport=_transport(handler)))
+    assert result.ok is True
+
+
+def test_ping_chat_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("slow")
+
+    result = asyncio.run(ping_chat("http://llm/v1", "k", "qwen", transport=_transport(handler)))
+    assert result.ok is False
+    assert result.error in {"timeout", "connect"}
+
+
+def test_ping_chat_unset() -> None:
+    result = asyncio.run(ping_chat(None, "k", "qwen"))
+    assert result.ok is None
+    assert result.error == "unset"
+
+
+def _ok(*_a, **_k) -> ProbeResult:
+    return ProbeResult(configured=True, reachable=True, model_present=True, error=None)
+
+
+def _down(*_a, **_k) -> ProbeResult:
+    return ProbeResult(configured=True, reachable=False, model_present=None, error="http_503")
+
+
+def _unset(*_a, **_k) -> ProbeResult:
+    return ProbeResult(configured=False, reachable=False, model_present=None, error="unset")
+
+
+def test_run_connectivity_fails_when_llm_down(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm/v1")
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    settings = Settings(_env_file=None)
+    results = asyncio.run(
+        run_connectivity_checks(
+            settings,
+            probe_fn=_ok,
+            ping_chat_fn=_down,
+            ping_embed_fn=_unset,
+            redis_ping_fn=lambda: None,
+        )
+    )
+    assert any(name == "llm_ping" and r.ok is False for name, r in results)
+
+
+def test_run_connectivity_unset_does_not_fail(monkeypatch) -> None:
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    settings = Settings(_env_file=None)
+    results = asyncio.run(
+        run_connectivity_checks(
+            settings,
+            probe_fn=_ok,
+            ping_chat_fn=_down,
+            ping_embed_fn=_down,
+            redis_ping_fn=lambda: None,
+        )
+    )
+    assert results
+    assert all(r.ok is not False for _, r in results)
+
+
+def test_ping_does_not_log_key(caplog) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    with caplog.at_level(logging.DEBUG, logger="cashflow_audit.api.probes"):
+        asyncio.run(
+            ping_chat("http://user:pass@llm/v1", "sk-secret", "qwen", transport=_transport(handler))
+        )
+    text = caplog.text
+    assert "sk-secret" not in text
+    assert "user:pass" not in text

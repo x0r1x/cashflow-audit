@@ -9,10 +9,15 @@ from fastapi import FastAPI
 
 from cashflow_audit.api.context import MAX_UPLOAD_BYTES, AppContext
 from cashflow_audit.api.errors import ApiError, api_error_handler, audit_error_handler
-from cashflow_audit.api.probes import embed_probe_from_settings, llm_probe_from_settings
+from cashflow_audit.api.probes import (
+    embed_probe_from_settings,
+    llm_probe_from_settings,
+    log_startup_ports,
+)
 from cashflow_audit.api.routes import router
 from cashflow_audit.api.workers import daily_sweep, reconcile, sweep_expired, worker_loop
 from cashflow_audit.errors import AuditError
+from cashflow_audit.observability import configure_logging
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
 from cashflow_audit.settings import Settings
 from cashflow_audit.store.disk import DiskStore
@@ -61,6 +66,9 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ctx = ctx
+        if ctx.settings is not None:
+            configure_logging(level=ctx.settings.log_level, json_output=ctx.settings.log_json)
+            await log_startup_ports(ctx)
         if ctx.run_workers:
             await sweep_expired(ctx)
             await reconcile(ctx)
