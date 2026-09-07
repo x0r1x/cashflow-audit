@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import logging
+import time
+
 from pydantic import BaseModel
 
 from cashflow_audit.errors import PortError
+from cashflow_audit.observability import log_event
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OpenAIChat:
@@ -13,6 +19,7 @@ class OpenAIChat:
         self.model = model
 
     def complete_json(self, schema: type[BaseModel], messages: list) -> BaseModel:
+        t0 = time.monotonic()
         try:
             response = self._client.chat.completions.create(
                 model=self.model,
@@ -22,4 +29,15 @@ class OpenAIChat:
             content = response.choices[0].message.content or "{}"
             return schema.model_validate_json(content)
         except Exception as exc:
-            raise PortError("chat failed") from exc
+            status_code = getattr(exc, "status_code", None)
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "port_error",
+                "chat failed",
+                port="chat",
+                model=self.model,
+                http_status=status_code,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+            )
+            raise PortError("chat failed", port="chat", status_code=status_code) from exc

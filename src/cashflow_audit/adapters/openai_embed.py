@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import logging
+import time
+
 from cashflow_audit.errors import PortError
+from cashflow_audit.observability import log_event
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class OpenAIEmbed:
@@ -11,8 +17,20 @@ class OpenAIEmbed:
         self.model = model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
+        t0 = time.monotonic()
         try:
             response = self._client.embeddings.create(model=self.model, input=texts)
             return [list(item.embedding) for item in response.data]
         except Exception as exc:
-            raise PortError("embed failed") from exc
+            status_code = getattr(exc, "status_code", None)
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "port_error",
+                "embed failed",
+                port="embed",
+                model=self.model,
+                http_status=status_code,
+                latency_ms=int((time.monotonic() - t0) * 1000),
+            )
+            raise PortError("embed failed", port="embed", status_code=status_code) from exc
