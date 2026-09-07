@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from typer.testing import CliRunner
 
 from cashflow_audit.cli import app
 
 
-def test_ping_unset_exits_zero(monkeypatch) -> None:
+def test_ping_unset_exits_zero(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("LLM_BASE_URL", raising=False)
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
