@@ -115,7 +115,7 @@ async def _ping_exit(settings: Settings) -> int:
         _format_ping_line("embed", embed, settings.embedding_model if embed.configured else None)
     )
     typer.echo(_format_ping_line("redis", redis, None))
-    if any(result.ok is False for _, result in results):
+    if any(result.ok is False for result in (llm, embed, redis)):
         return 1
     return 0
 

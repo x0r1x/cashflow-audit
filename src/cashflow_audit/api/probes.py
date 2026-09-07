@@ -367,14 +367,30 @@ async def _maybe_await(value: Any) -> Any:
     return value
 
 
+def _emit_redis(result: ProbeResult) -> ProbeResult:
+    level = logging.ERROR if result.ok is False else logging.INFO
+    log_event(
+        _LOGGER,
+        level,
+        "ping_redis",
+        "redis ping",
+        port="redis",
+        reachable=result.reachable,
+        reason=result.error,
+    )
+    return result
+
+
 def _redis_result(raw: object) -> ProbeResult:
     if raw is None:
-        return _UNSET_RESULT
-    if isinstance(raw, ProbeResult):
-        return raw
-    if raw:
-        return ProbeResult(configured=True, reachable=True, model_present=True, error=None)
-    return ProbeResult(configured=True, reachable=False, model_present=None, error="connect")
+        result = _UNSET_RESULT
+    elif isinstance(raw, ProbeResult):
+        result = raw
+    elif raw:
+        result = ProbeResult(configured=True, reachable=True, model_present=True, error=None)
+    else:
+        result = ProbeResult(configured=True, reachable=False, model_present=None, error="connect")
+    return _emit_redis(result)
 
 
 async def _default_redis_ping(url: str) -> bool:
@@ -457,11 +473,12 @@ async def run_connectivity_checks(
         results.append(("embed_ping", _UNSET_RESULT))
 
     if redis_ping_fn is not None:
-        results.append(("redis", _redis_result(await _maybe_await(redis_ping_fn()))))
+        raw = await _maybe_await(redis_ping_fn())
     elif settings.redis_url:
-        results.append(("redis", _redis_result(await _default_redis_ping(settings.redis_url))))
+        raw = await _default_redis_ping(settings.redis_url)
     else:
-        results.append(("redis", _UNSET_RESULT))
+        raw = None
+    results.append(("redis", _redis_result(raw)))
     return results
 
 

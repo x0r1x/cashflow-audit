@@ -304,6 +304,31 @@ def test_run_connectivity_unset_does_not_fail(monkeypatch) -> None:
     assert all(r.ok is not False for _, r in results)
 
 
+def test_run_connectivity_logs_redis_down(monkeypatch, caplog) -> None:
+    monkeypatch.delenv("LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    settings = Settings(_env_file=None)
+    with caplog.at_level(logging.ERROR, logger="cashflow_audit.api.probes"):
+        asyncio.run(
+            run_connectivity_checks(
+                settings,
+                probe_fn=_ok,
+                ping_chat_fn=_unset,
+                ping_embed_fn=_unset,
+                redis_ping_fn=lambda: False,
+            )
+        )
+    redis_records = [
+        record for record in caplog.records if getattr(record, "event", None) == "ping_redis"
+    ]
+    assert redis_records
+    assert redis_records[-1].levelno == logging.ERROR
+    assert getattr(redis_records[-1], "reachable", None) is False
+    assert "redis://" not in caplog.text
+
+
 def test_ping_does_not_log_key(caplog) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})

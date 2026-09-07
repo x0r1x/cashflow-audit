@@ -50,3 +50,38 @@ def test_ping_down_exits_one(monkeypatch) -> None:
     monkeypatch.setattr(cli_mod, "run_connectivity_checks", fake_checks)
     result = CliRunner().invoke(app, ["ping"])
     assert result.exit_code == 1
+
+
+def test_ping_exit_follows_printed_ports(monkeypatch) -> None:
+    from cashflow_audit import cli as cli_mod
+    from cashflow_audit.api.probes import ProbeResult
+
+    async def fake_checks(_settings, **_kwargs):
+        return [
+            (
+                "llm_probe",
+                ProbeResult(
+                    configured=True,
+                    reachable=True,
+                    model_present=False,
+                    error="model_missing",
+                ),
+            ),
+            (
+                "llm_ping",
+                ProbeResult(configured=True, reachable=True, model_present=True, error=None),
+            ),
+            (
+                "embed_ping",
+                ProbeResult(configured=False, reachable=False, model_present=None, error="unset"),
+            ),
+            (
+                "redis",
+                ProbeResult(configured=False, reachable=False, model_present=None, error="unset"),
+            ),
+        ]
+
+    monkeypatch.setattr(cli_mod, "run_connectivity_checks", fake_checks)
+    result = CliRunner().invoke(app, ["ping"])
+    assert result.exit_code == 0
+    assert "llm: ok" in result.stdout
