@@ -142,3 +142,55 @@ def test_readyz_probe_info_only_on_change(tmp_path: Path, caplog) -> None:
             r.__dict__.get("event") == "probe_models" and r.__dict__.get("port") == "llm"
             for r in caplog.records
         )
+
+
+def test_lifespan_deep_ping_on_start_does_not_block_serve(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from cashflow_audit.api.probes import ProbeResult
+    from cashflow_audit.settings import Settings
+
+    pings: list[tuple[object, object]] = []
+
+    async def fake_probe(*_args: object, **_kwargs: object) -> ProbeResult:
+        return ProbeResult(configured=True, reachable=True, model_present=True, error=None)
+
+    async def fake_ping_chat(
+        base_url: object, _api_key: object, model: object, **_kwargs: object
+    ) -> ProbeResult:
+        pings.append((base_url, model))
+        return ProbeResult(
+            configured=True, reachable=False, model_present=None, error="connect"
+        )
+
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm/v1")
+    monkeypatch.setenv("LLM_API_KEY", "k")
+    monkeypatch.setenv("LLM_MODEL", "qwen")
+    monkeypatch.delenv("EMBEDDING_BASE_URL", raising=False)
+    monkeypatch.delenv("EMBEDDING_API_KEY", raising=False)
+    monkeypatch.delenv("EMBEDDING_MODEL", raising=False)
+    monkeypatch.setattr("cashflow_audit.api.probes.probe_models", fake_probe)
+    monkeypatch.setattr("cashflow_audit.api.probes.ping_chat", fake_ping_chat)
+    settings = Settings(_env_file=None)
+    with api_client(tmp_path, settings=settings) as (client, _data, _bus):
+        res = client.get("/healthz")
+        assert res.status_code == 200
+        assert res.json() == {"status": "ok"}
+    assert pings == [("http://llm/v1", "qwen")]
+
+
+def test_lifespan_skips_port_checks_without_settings(
+    tmp_path: Path, monkeypatch
+) -> None:
+    pings: list[object] = []
+
+    async def fake_ping_chat(*_args: object, **_kwargs: object):
+        pings.append("called")
+        from cashflow_audit.api.probes import ProbeResult
+
+        return ProbeResult(configured=True, reachable=True, model_present=True, error=None)
+
+    monkeypatch.setattr("cashflow_audit.api.probes.ping_chat", fake_ping_chat)
+    with api_client(tmp_path) as (client, _data, _bus):
+        assert client.get("/healthz").status_code == 200
+    assert pings == []
