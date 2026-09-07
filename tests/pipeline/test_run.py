@@ -8,6 +8,7 @@ from pathlib import Path
 from cashflow_audit.app.pipeline import Pipeline
 from cashflow_audit.errors import PortError
 from cashflow_audit.explain.models import Report
+from cashflow_audit.observability import audit_id_var, stage_var
 from tests.helpers.ports import FakeChat, FakeEmbed, GrantSlots
 from tests.helpers.xlsx import CellSpec, SheetSpec, build_xlsx
 
@@ -112,6 +113,35 @@ def test_timeout_writes_failed_and_releases_run_slot(
         and r.__dict__.get("error_code") == "timeout"
         for r in caplog.records
     )
+
+
+def test_timeout_on_compile_returns_failed_and_resets_contextvars(
+    tmp_path: Path, dest: Path, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    source = _book(tmp_path / "m.xlsx")
+    ticks = iter([0.0, 0.0, 100.0, 100.0])
+    report = Pipeline(
+        chat=None,
+        embed=None,
+        slots=GrantSlots(),
+        timeout_sec=1,
+        clock=lambda: next(ticks),
+    ).run(source, dest)
+    assert isinstance(report, Report)
+    assert report.status == "failed"
+    meta = json.loads((dest / "meta.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "failed"
+    assert meta["error"] == "timeout"
+    assert meta["stage"] == "compile"
+    assert any(
+        r.__dict__.get("event") == "pipeline_fail"
+        and r.__dict__.get("error_code") == "timeout"
+        and r.__dict__.get("stage") == "compile"
+        for r in caplog.records
+    )
+    assert stage_var.get() is None
+    assert audit_id_var.get() is None
 
 
 def test_catalog_closed_after_run(tmp_path: Path, dest: Path) -> None:

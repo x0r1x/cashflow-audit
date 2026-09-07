@@ -65,6 +65,8 @@ class Pipeline:
         self.on_progress = on_progress
         self.catalog: IrCatalog | None = None
         self._started = 0.0
+        self._stage = "parse"
+        self._stage_token: Token[str | None] | None = None
 
     def run(
         self,
@@ -78,23 +80,23 @@ class Pipeline:
         wall0 = time.monotonic()
         self.catalog = None
         owner = _ensure_owner(source, dest_dir, actor_id)
-        stage = "parse"
+        self._stage = "parse"
+        self._stage_token = None
         audit_token = audit_id_var.set(dest_dir.name)
-        stage_token: Token[str | None] | None = None
         try:
             log_event(_LOGGER, logging.INFO, "pipeline_start", "pipeline start")
-            stage, stage_token = self._enter("parse", stage_token)
+            self._enter("parse")
             _parse(source, dest_dir)
-            stage, stage_token = self._enter("compile", stage_token)
+            self._enter("compile")
             _compile(dest_dir)
             self.catalog = IrCatalog.open(dest_dir)
-            stage, stage_token = self._enter("layout", stage_token)
+            self._enter("layout")
             _layout(dest_dir, self.catalog)
-            stage, stage_token = self._enter("series", stage_token)
+            self._enter("series")
             t_series = time.monotonic()
             series_workbook(dest_dir, self.catalog)
             _stage_done("series", t_series)
-            stage, stage_token = self._enter("mapping", stage_token)
+            self._enter("mapping")
             glossary = {}
             if self.glossary_dir is not None:
                 glossary = load_glossary(self.glossary_dir / f"{actor_id}.json")
@@ -111,11 +113,11 @@ class Pipeline:
                 slot_timeout_sec=self.slot_timeout_sec,
                 embedding_model=self.embedding_model,
             )
-            stage, stage_token = self._enter("check", stage_token)
+            self._enter("check")
             check_workbook(dest_dir, self.catalog)
-            stage, stage_token = self._enter("lineage", stage_token)
+            self._enter("lineage")
             lineage_workbook(dest_dir)
-            stage, stage_token = self._enter("explain", stage_token)
+            self._enter("explain")
             report = explain_workbook(
                 dest_dir,
                 chat=self.chat,
@@ -134,32 +136,37 @@ class Pipeline:
             )
             return report
         except PipelineTimeout:
-            _pipeline_fail("timeout", stage)
-            return _fail(dest_dir, owner, "timeout", stage, self.slots)
+            _pipeline_fail("timeout", self._stage)
+            return _fail(dest_dir, owner, "timeout", self._stage, self.slots)
         except AuditError as exc:
-            _pipeline_fail(exc.code, stage)
-            return _fail(dest_dir, owner, exc.code, stage, self.slots)
+            _pipeline_fail(exc.code, self._stage)
+            return _fail(dest_dir, owner, exc.code, self._stage, self.slots)
         except PortError:
-            _pipeline_fail("port_error", stage)
-            return _fail(dest_dir, owner, "port_error", stage, self.slots)
+            _pipeline_fail("port_error", self._stage)
+            return _fail(dest_dir, owner, "port_error", self._stage, self.slots)
         finally:
-            if self.catalog is not None:
-                self.catalog.close()
-                self.catalog = None
-            if stage_token is not None:
-                stage_var.reset(stage_token)
-            audit_id_var.reset(audit_token)
+            try:
+                if self.catalog is not None:
+                    self.catalog.close()
+                    self.catalog = None
+                if self._stage_token is not None:
+                    stage_var.reset(self._stage_token)
+                    self._stage_token = None
+            finally:
+                audit_id_var.reset(audit_token)
 
-    def _enter(self, stage: str, token: Token[str | None] | None) -> tuple[str, Token[str | None]]:
-        if token is not None:
-            stage_var.reset(token)
-        token = stage_var.set(stage)
+    def _enter(self, name: str) -> str:
+        if self._stage_token is not None:
+            stage_var.reset(self._stage_token)
+            self._stage_token = None
+        self._stage = name
+        self._stage_token = stage_var.set(name)
         if self.on_progress:
-            self.on_progress(stage)
-        log_event(_LOGGER, logging.INFO, "stage_start", f"{stage} start", stage=stage)
+            self.on_progress(name)
+        log_event(_LOGGER, logging.INFO, "stage_start", f"{name} start", stage=name)
         if self.clock() - self._started > self.timeout_sec:
-            raise PipelineTimeout(stage)
-        return stage, token
+            raise PipelineTimeout(name)
+        return name
 
 
 def _parse(source: Path, dest_dir: Path) -> None:
