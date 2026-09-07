@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import logging
+
 from cashflow_audit.checkers.models import Candidate, CheckDocument
+from cashflow_audit.errors import PortError
 from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
@@ -206,10 +209,11 @@ def test_related_ids_share_downstream_output() -> None:
     assert report.findings[0].id in report.findings[1].related_ids
 
 
-def test_denied_slot_does_not_call_chat_and_uses_template() -> None:
+def test_denied_slot_does_not_call_chat_and_uses_template(caplog) -> None:
     chat = FakeChat(
         payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
     )
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
     report = compose_report(
         candidates=[_cand()],
         lineage=LineageDocument(items=[_lin()]),
@@ -223,6 +227,37 @@ def test_denied_slot_does_not_call_chat_and_uses_template() -> None:
     assert report.findings[0].title != "LLM"
     assert report.status == "degraded"
     assert report.llm_used is False
+    assert any(
+        r.__dict__.get("event") == "port_fallback"
+        and r.__dict__.get("reason") == "slot_timeout"
+        and r.__dict__.get("port") == "chat"
+        for r in caplog.records
+    )
+
+
+def test_chat_port_error_logs_port_fallback(caplog) -> None:
+    class BoomChat:
+        def complete_json(self, schema, messages):
+            raise PortError("chat down")
+
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    report = compose_report(
+        candidates=[_cand()],
+        lineage=LineageDocument(items=[_lin()]),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2", "P&L!C3"},
+        chat=BoomChat(),
+        slots=GrantSlots(),
+    )
+    assert report.findings[0].title
+    assert report.status == "degraded"
+    assert any(
+        r.__dict__.get("event") == "port_fallback"
+        and r.__dict__.get("reason") == "port_error"
+        and r.__dict__.get("port") == "chat"
+        for r in caplog.records
+    )
 
 
 def test_explain_stops_llm_when_budget_exhausted() -> None:

@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import shutil
 import time
 
 from cashflow_audit.adapters.slots import BusSlotGate
 from cashflow_audit.api.context import AppContext
 from cashflow_audit.app.pipeline import Pipeline
+from cashflow_audit.observability import audit_id_var, log_event
 from cashflow_audit.ports.protocols import Job
+
+_LOGGER = logging.getLogger(__name__)
 
 
 async def worker_loop(name: str, ctx: AppContext) -> None:
@@ -17,7 +21,16 @@ async def worker_loop(name: str, ctx: AppContext) -> None:
             await _cycle(name, ctx)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as exc:
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "job_fail",
+                "worker cycle",
+                error_code="internal",
+                exc_type=type(exc).__name__,
+                exc_info=True,
+            )
             await asyncio.sleep(0.2)
 
 
@@ -30,60 +43,92 @@ async def _cycle(name: str, ctx: AppContext) -> None:
         if job is None:
             await asyncio.sleep(0.05)
             return
-        if not await ctx.bus.acquire_audit(job.audit_id):
-            await ctx.bus.ack(job)
-            return
+        token = audit_id_var.set(job.audit_id)
         try:
-            await _execute(job, ctx)
-            await ctx.bus.ack(job)
+            log_event(_LOGGER, logging.INFO, "job_claimed", "job claimed", worker=name)
+            if not await ctx.bus.acquire_audit(job.audit_id):
+                await ctx.bus.ack(job)
+                return
+            try:
+                await _execute(job, ctx)
+                await ctx.bus.ack(job)
+            finally:
+                await ctx.bus.release_audit(job.audit_id)
         finally:
-            await ctx.bus.release_audit(job.audit_id)
+            audit_id_var.reset(token)
     finally:
         await ctx.bus.release_slot("run", name)
 
 
 async def _execute(job: Job, ctx: AppContext) -> None:
-    dest = ctx.store.dest_dir(job.audit_id)
-    owner_path = dest / "owner.json"
-    if not owner_path.exists():
-        await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="not_found")
-        return
-    owner = json.loads(owner_path.read_text(encoding="utf-8"))
-    await ctx.bus.set_progress(job.audit_id, "parse")
-    loop = asyncio.get_running_loop()
-    slots = BusSlotGate(ctx.bus, job.audit_id, loop)
-    source = dest / "source.xlsx"
-
-    def _run():
-        return Pipeline(
-            embed=ctx.embed,
-            chat=ctx.chat,
-            slots=slots,
-            glossary_dir=ctx.store.glossary_dir(),
-            settings=ctx.settings,
-            on_progress=slots.progress,
-        ).run(source, dest, actor_id=str(owner.get("actor_id") or "anonymous"))
-
-    hb = asyncio.create_task(_heartbeat(ctx, job.audit_id), name=f"hb-{job.audit_id}")
+    token = audit_id_var.set(job.audit_id)
     try:
-        report = await asyncio.to_thread(_run)
-    except Exception:
-        await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="internal")
-        return
-    finally:
-        hb.cancel()
+        dest = ctx.store.dest_dir(job.audit_id)
+        owner_path = dest / "owner.json"
+        if not owner_path.exists():
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "job_fail",
+                "owner missing",
+                error_code="not_found",
+            )
+            await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="not_found")
+            return
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        await ctx.bus.set_progress(job.audit_id, "parse")
+        loop = asyncio.get_running_loop()
+        slots = BusSlotGate(ctx.bus, job.audit_id, loop)
+        source = dest / "source.xlsx"
+
+        def _run():
+            return Pipeline(
+                embed=ctx.embed,
+                chat=ctx.chat,
+                slots=slots,
+                glossary_dir=ctx.store.glossary_dir(),
+                settings=ctx.settings,
+                on_progress=slots.progress,
+            ).run(source, dest, actor_id=str(owner.get("actor_id") or "anonymous"))
+
+        hb = asyncio.create_task(_heartbeat(ctx, job.audit_id), name=f"hb-{job.audit_id}")
         try:
-            await hb
-        except asyncio.CancelledError:
-            pass
-    stage = "done"
-    error = None
-    meta_path = dest / "meta.json"
-    if meta_path.exists():
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        stage = str(meta.get("stage") or stage)
-        error = meta.get("error")
-    await ctx.bus.set_terminal(job.audit_id, report.status, stage=stage, error=error)
+            report = await asyncio.to_thread(_run)
+        except Exception as exc:
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "job_fail",
+                "job failed",
+                error_code="internal",
+                exc_type=type(exc).__name__,
+                exc_info=True,
+            )
+            await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="internal")
+            return
+        finally:
+            hb.cancel()
+            try:
+                await hb
+            except asyncio.CancelledError:
+                pass
+        stage = "done"
+        error = None
+        meta_path = dest / "meta.json"
+        if meta_path.exists():
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            stage = str(meta.get("stage") or stage)
+            error = meta.get("error")
+        log_event(
+            _LOGGER,
+            logging.INFO,
+            "job_done",
+            "job done",
+            status=report.status,
+        )
+        await ctx.bus.set_terminal(job.audit_id, report.status, stage=stage, error=error)
+    finally:
+        audit_id_var.reset(token)
 
 
 async def _heartbeat(ctx: AppContext, audit_id: str) -> None:
@@ -106,6 +151,7 @@ async def reconcile(ctx: AppContext) -> None:
     audits = ctx.store.root / "audits"
     if not audits.is_dir():
         return
+    count = 0
     for dest in audits.iterdir():
         if not dest.is_dir():
             continue
@@ -120,6 +166,8 @@ async def reconcile(ctx: AppContext) -> None:
             continue
         await ctx.bus.mark_queued(dest.name, str(owner.get("actor_id") or ""))
         await ctx.bus.enqueue(dest.name)
+        count += 1
+    log_event(_LOGGER, logging.INFO, "reconcile_requeue", "reconcile requeue", count=count)
 
 
 async def sweep_expired(ctx: AppContext) -> None:
@@ -127,6 +175,7 @@ async def sweep_expired(ctx: AppContext) -> None:
     if not audits.is_dir() or ctx.ttl_days <= 0:
         return
     cutoff = time.time() - ctx.ttl_days * 86400
+    deleted = 0
     for dest in audits.iterdir():
         if not dest.is_dir():
             continue
@@ -139,3 +188,5 @@ async def sweep_expired(ctx: AppContext) -> None:
             continue
         if mtime < cutoff:
             shutil.rmtree(dest, ignore_errors=True)
+            deleted += 1
+    log_event(_LOGGER, logging.INFO, "sweep_deleted", "sweep deleted", count=deleted)

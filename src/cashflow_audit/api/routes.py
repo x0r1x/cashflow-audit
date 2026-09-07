@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import tempfile
 from collections.abc import Awaitable, Callable
 from pathlib import Path
@@ -16,10 +17,14 @@ from cashflow_audit.app.hitl import apply_hitl
 from cashflow_audit.app.ids import audit_id_for, sha256_bytes
 from cashflow_audit.errors import AuditError
 from cashflow_audit.explain.models import Report
+from cashflow_audit.observability import log_event
 from cashflow_audit.parse.zip_guard import open_xlsx_zip
 from cashflow_audit.store.fs import atomic_write_bytes, write_json
 
 router = APIRouter()
+_LOGGER = logging.getLogger(__name__)
+_MISSING = object()
+_LAST_PORT_STATE: dict[str, bool | None] = {}
 
 ActorHeader = Annotated[str | None, Header(alias="X-Actor-Id")]
 
@@ -67,8 +72,8 @@ async def readyz(request: Request) -> JSONResponse:
             {"status": "not_ready", "redis": False, "llm": False, "embeddings": False},
             status_code=503,
         )
-    llm_state = await _port_state(ctx.llm_ok, ctx.llm_probe)
-    embed_state = await _port_state(ctx.embed_ok, ctx.embed_probe)
+    llm_state = await _port_state(ctx.llm_ok, ctx.llm_probe, port="llm")
+    embed_state = await _port_state(ctx.embed_ok, ctx.embed_probe, port="embed")
     status = "ready"
     if llm_state is False or embed_state is False:
         status = "degraded"
@@ -244,12 +249,26 @@ async def _resolve_status(
 async def _port_state(
     flag: bool | None,
     probe: Callable[[], Awaitable[bool | None]] | None,
+    *,
+    port: str,
 ) -> bool | None:
     if flag is not None:
         return flag
     if probe is None:
         return None
-    return await probe()
+    value = await probe()
+    prev = _LAST_PORT_STATE.get(port, _MISSING)
+    if prev is _MISSING or prev != value:
+        log_event(
+            _LOGGER,
+            logging.INFO,
+            "probe_models",
+            "port probe",
+            port=port,
+            reachable=value,
+        )
+        _LAST_PORT_STATE[port] = value
+    return value
 
 
 def _validate_upload(filename: str, data: bytes, max_bytes: int) -> None:

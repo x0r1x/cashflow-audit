@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+
+from cashflow_audit.errors import PortError
 from cashflow_audit.layout.models import Axis, AxisHeader, Block, Layout, LayoutRow, SheetLayout
 from cashflow_audit.mapping.cascade import map_layout
 from cashflow_audit.mapping.models import Concept
@@ -114,10 +117,11 @@ def test_ambiguous_without_chat_emits_question() -> None:
     assert "unknown" in doc.questions[0].options
 
 
-def test_no_slot_does_not_call_embed_or_chat() -> None:
+def test_no_slot_does_not_call_embed_or_chat(caplog) -> None:
     embed = FakeEmbed(VECS)
     chat = FakeChat("pnl.revenue")
     layout = _layout(LayoutRow(row=2, label="Выручка"))
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
     doc = map_layout(
         layout,
         taxonomy=TAXONOMY,
@@ -129,6 +133,35 @@ def test_no_slot_does_not_call_embed_or_chat() -> None:
     assert embed.calls == 0
     assert chat.calls == 0
     assert doc.rows[0].source == "question"
+    assert any(
+        r.__dict__.get("event") == "port_fallback"
+        and r.__dict__.get("reason") == "slot_timeout"
+        for r in caplog.records
+    )
+
+
+def test_embed_port_error_logs_port_fallback(caplog) -> None:
+    class BoomEmbed:
+        def embed(self, texts: list[str]) -> list[list[float]]:
+            raise PortError("embed down")
+
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    layout = _layout(LayoutRow(row=2, label="Выручка"))
+    doc = map_layout(
+        layout,
+        taxonomy=TAXONOMY,
+        glossary={},
+        embed=BoomEmbed(),
+        chat=None,
+        slots=GrantSlots(),
+    )
+    assert doc.rows[0].source == "question"
+    assert any(
+        r.__dict__.get("event") == "port_fallback"
+        and r.__dict__.get("reason") == "port_error"
+        and r.__dict__.get("port") == "embed"
+        for r in caplog.records
+    )
 
 
 def test_mapping_row_embed_skipped_when_budget_zero() -> None:

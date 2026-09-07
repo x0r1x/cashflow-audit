@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -17,8 +18,11 @@ from cashflow_audit.mapping.models import (
 from cashflow_audit.mapping.normalize import normalize_label
 from cashflow_audit.mapping.roles import article_role
 from cashflow_audit.mapping.vectors import load_concept_vectors
+from cashflow_audit.observability import log_event
 from cashflow_audit.parse.a1 import format_addr
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, SlotGate
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def map_layout(
@@ -43,43 +47,77 @@ def map_layout(
     pending = _collect_rows(layout, glossary_n, concept_ids, templates)
 
     need_knn = [row for row in pending if row.concept_id is None]
-    if need_knn and embed is not None and _acquire(slots, "embed", slot_timeout_sec):
-        try:
-            index = load_concept_vectors(
-                embed,
-                taxonomy,
-                cache_path=cache_path,
-                model=embedding_model,
+    if need_knn and embed is not None:
+        if _acquire(slots, "embed", slot_timeout_sec):
+            try:
+                index = load_concept_vectors(
+                    embed,
+                    taxonomy,
+                    cache_path=cache_path,
+                    model=embedding_model,
+                )
+                if index and _charge(slots, "embed"):
+                    queries = embed.embed([row.label for row in need_knn])
+                    for row, vec in zip(need_knn, queries, strict=True):
+                        row.ranked = rank_concepts(vec, index)
+                        picked = confident_match(row.ranked)
+                        picked = _guard(row.label, picked, concept_ids)
+                        if picked:
+                            row.concept_id = picked
+                            row.source = "embed"
+            except PortError:
+                log_event(
+                    _LOGGER,
+                    logging.WARNING,
+                    "port_fallback",
+                    "embed fallback",
+                    port="embed",
+                    reason="port_error",
+                )
+            finally:
+                _release(slots, "embed")
+        else:
+            log_event(
+                _LOGGER,
+                logging.WARNING,
+                "port_fallback",
+                "embed fallback",
+                port="embed",
+                reason="slot_timeout",
             )
-            if index and _charge(slots, "embed"):
-                queries = embed.embed([row.label for row in need_knn])
-                for row, vec in zip(need_knn, queries, strict=True):
-                    row.ranked = rank_concepts(vec, index)
-                    picked = confident_match(row.ranked)
+
+    need_chat = [row for row in pending if row.concept_id is None]
+    if need_chat and chat is not None:
+        if _acquire(slots, "llm", slot_timeout_sec):
+            try:
+                for row in need_chat:
+                    if not _charge(slots, "llm"):
+                        break
+                    picked = _ask_chat(chat, row, taxonomy)
                     picked = _guard(row.label, picked, concept_ids)
                     if picked:
                         row.concept_id = picked
-                        row.source = "embed"
-        except PortError:
-            pass
-        finally:
-            _release(slots, "embed")
-
-    need_chat = [row for row in pending if row.concept_id is None]
-    if need_chat and chat is not None and _acquire(slots, "llm", slot_timeout_sec):
-        try:
-            for row in need_chat:
-                if not _charge(slots, "llm"):
-                    break
-                picked = _ask_chat(chat, row, taxonomy)
-                picked = _guard(row.label, picked, concept_ids)
-                if picked:
-                    row.concept_id = picked
-                    row.source = "chat"
-        except PortError:
-            pass
-        finally:
-            _release(slots, "llm")
+                        row.source = "chat"
+            except PortError:
+                log_event(
+                    _LOGGER,
+                    logging.WARNING,
+                    "port_fallback",
+                    "chat fallback",
+                    port="chat",
+                    reason="port_error",
+                )
+            finally:
+                _release(slots, "llm")
+        else:
+            log_event(
+                _LOGGER,
+                logging.WARNING,
+                "port_fallback",
+                "chat fallback",
+                port="chat",
+                reason="slot_timeout",
+            )
 
     questions: list[MappingQuestion] = []
     mapped: list[MappedRow] = []

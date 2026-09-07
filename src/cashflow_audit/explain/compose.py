@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.errors import PortError
 from cashflow_audit.explain.models import (
@@ -12,7 +14,10 @@ from cashflow_audit.explain.models import (
 from cashflow_audit.explain.template import impact_text, template_card
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
+from cashflow_audit.observability import log_event
 from cashflow_audit.ports.protocols import ChatPort, SlotGate
+
+_LOGGER = logging.getLogger(__name__)
 
 FREEZE_TAGS = {"likely_intentional", "edge_period", "hist_manual_adjustment"}
 _SEV_RANK = {"error": 0, "warning": 1, "risk": 2}
@@ -54,6 +59,15 @@ def compose_report(
     acquired = False
     if chat is not None and llm_eligible:
         acquired = _acquire(slots, slot_timeout_sec)
+        if not acquired:
+            log_event(
+                _LOGGER,
+                logging.WARNING,
+                "port_fallback",
+                "chat fallback",
+                port="chat",
+                reason="slot_timeout",
+            )
     findings: list[Finding] = []
     for pos, (_index, cand, item) in enumerate(kept):
         card = template_card(cand, item)
@@ -154,7 +168,17 @@ def _llm_card(chat: ChatPort, cand: Candidate, item: LineageItem) -> ExplainCard
     ]
     try:
         card = chat.complete_json(ExplainCard, messages)
-    except (PortError, Exception):
+    except PortError:
+        log_event(
+            _LOGGER,
+            logging.WARNING,
+            "port_fallback",
+            "chat fallback",
+            port="chat",
+            reason="port_error",
+        )
+        return None
+    except Exception:
         return None
     if not isinstance(card, ExplainCard):
         try:

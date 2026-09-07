@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Coroutine
 from typing import TypeVar
 
+from cashflow_audit.observability import log_event
 from cashflow_audit.ports.protocols import BudgetKind, JobBus, SlotKind
+
+_LOGGER = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -48,5 +52,12 @@ class BusSlotGate:
             if await self._bus.try_slot(kind, self._audit_id):
                 return True
             if timeout_sec <= 0 or time.monotonic() >= deadline:
+                log_event(
+                    _LOGGER,
+                    logging.WARNING,
+                    "slot_timeout",
+                    "slot wait timed out",
+                    kind=kind,
+                )
                 return False
             await asyncio.sleep(0.05)

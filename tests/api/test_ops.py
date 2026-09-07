@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from pathlib import Path
 
@@ -57,3 +58,36 @@ def test_readyz_probe_down_is_degraded(tmp_path: Path) -> None:
         assert res.json()["status"] == "degraded"
         assert res.json()["llm"] is False
         assert res.json()["redis"] is True
+
+
+def test_readyz_probe_info_only_on_change(tmp_path: Path, caplog) -> None:
+    from cashflow_audit.api.routes import _LAST_PORT_STATE
+
+    states = iter((True, True, False))
+
+    async def flip() -> bool:
+        return next(states)
+
+    _LAST_PORT_STATE.clear()
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    with api_client(tmp_path, llm_probe=flip) as (client, _data, _bus):
+        caplog.clear()
+        first = client.get("/readyz")
+        assert first.status_code == 200
+        assert any(
+            r.__dict__.get("event") == "probe_models" and r.__dict__.get("port") == "llm"
+            for r in caplog.records
+        )
+        caplog.clear()
+        client.get("/readyz")
+        assert not any(
+            r.__dict__.get("event") == "probe_models" and r.__dict__.get("port") == "llm"
+            for r in caplog.records
+        )
+        caplog.clear()
+        third = client.get("/readyz")
+        assert third.json()["status"] == "degraded"
+        assert any(
+            r.__dict__.get("event") == "probe_models" and r.__dict__.get("port") == "llm"
+            for r in caplog.records
+        )

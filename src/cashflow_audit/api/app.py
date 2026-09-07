@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from starlette.responses import Response
 
 from cashflow_audit.api.context import MAX_UPLOAD_BYTES, AppContext
 from cashflow_audit.api.errors import ApiError, api_error_handler, audit_error_handler
@@ -17,10 +20,13 @@ from cashflow_audit.api.probes import (
 from cashflow_audit.api.routes import router
 from cashflow_audit.api.workers import daily_sweep, reconcile, sweep_expired, worker_loop
 from cashflow_audit.errors import AuditError
-from cashflow_audit.observability import configure_logging
+from cashflow_audit.observability import configure_logging, log_event
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
 from cashflow_audit.settings import Settings
 from cashflow_audit.store.disk import DiskStore
+
+_LOGGER = logging.getLogger("cashflow_audit.api")
+_SKIP_HTTP_INFO = frozenset({"/healthz", "/readyz"})
 
 
 def create_app(
@@ -89,6 +95,25 @@ def create_app(
     app.add_exception_handler(ApiError, api_error_handler)
     app.add_exception_handler(AuditError, audit_error_handler)
     app.include_router(router)
+
+    @app.middleware("http")
+    async def _log_http(request: Request, call_next: Callable) -> Response:
+        started = time.monotonic()
+        response = await call_next(request)
+        path = request.url.path
+        if path not in _SKIP_HTTP_INFO:
+            log_event(
+                _LOGGER,
+                logging.INFO,
+                "http_request",
+                "http request",
+                method=request.method,
+                path=path,
+                http_code=response.status_code,
+                duration_ms=int((time.monotonic() - started) * 1000),
+            )
+        return response
+
     return app
 
 

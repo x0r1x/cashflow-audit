@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -415,3 +416,30 @@ def test_answers_no_questions_409(tmp_path: Path, book: Path) -> None:
             json={"answers": [{"question_id": "q_001", "concept_id": "pnl.revenue"}]},
         )
         assert res.status_code == 409
+
+
+def test_healthz_skips_http_request_info(tmp_path: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    with api_client(tmp_path) as (client, _data, _bus):
+        caplog.clear()
+        res = client.get("/healthz")
+        assert res.status_code == 200
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+    assert not any(r.__dict__.get("event") == "http_request" for r in caplog.records)
+
+
+def test_post_does_not_log_upload_filename(tmp_path: Path, book: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    with api_client(tmp_path) as (client, _data, _bus):
+        caplog.clear()
+        res = _post(client, book, filename="ClientCashflow.xlsx")
+        assert res.status_code == 202
+    assert "ClientCashflow" not in caplog.text
+    assert any(
+        r.__dict__.get("event") == "http_request"
+        and r.__dict__.get("path") == "/v1/audits"
+        and r.__dict__.get("method") == "POST"
+        and r.__dict__.get("http_code") == 202
+        for r in caplog.records
+    )

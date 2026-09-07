@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 
 from cashflow_audit.errors import PortError
 from cashflow_audit.mapping.models import Concept
+from cashflow_audit.observability import log_event
 from cashflow_audit.ports.protocols import EmbedPort
+
+_LOGGER = logging.getLogger(__name__)
 
 COSINE_MIN = 0.85
 COSINE_GAP = 0.08
@@ -33,6 +38,14 @@ def concept_vectors(embed: EmbedPort, taxonomy: list[Concept]) -> dict[str, list
     try:
         vectors = embed.embed(labels)
     except PortError:
+        log_event(
+            _LOGGER,
+            logging.WARNING,
+            "port_fallback",
+            "embed fallback",
+            port="embed",
+            reason="port_error",
+        )
         return {}
     buckets: dict[str, list[list[float]]] = {}
     for concept_id, vec in zip(owners, vectors, strict=True):

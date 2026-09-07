@@ -104,8 +104,9 @@ def configure_logging(
 
 def log_event(logger: logging.Logger, level: int, event: str, msg: str, **fields: object) -> None:
     extra = {"event": event}
+    exc_info = fields.pop("exc_info", False)
     for key, value in fields.items():
         if key in FORBIDDEN_LOG_KEYS:
             continue
         extra[key] = value
-    logger.log(level, msg, extra=extra)
+    logger.log(level, msg, extra=extra, exc_info=exc_info)

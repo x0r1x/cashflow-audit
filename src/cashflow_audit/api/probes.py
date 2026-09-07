@@ -15,6 +15,7 @@ from cashflow_audit.observability import log_event
 from cashflow_audit.settings import Settings
 
 _LOGGER = logging.getLogger("cashflow_audit.api.probes")
+_LAST_PROBE: dict[str, tuple[object, ...]] = {}
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,12 @@ def _emit(
         level = logging.WARNING
     else:
         level = logging.INFO
+    key = port or ""
+    snapshot = (result.ok, result.reachable, result.model_present, result.error, reason)
+    prev = _LAST_PROBE.get(key)
+    _LAST_PROBE[key] = snapshot
+    if level == logging.INFO and prev == snapshot:
+        return result
     log_event(
         _LOGGER,
         level,
