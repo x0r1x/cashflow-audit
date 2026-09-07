@@ -52,6 +52,7 @@ _ALLOWED_EXTRA = frozenset(
         "method",
         "http_code",
         "exc_type",
+        "audit_id",
     }
 )
 

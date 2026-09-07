@@ -103,6 +103,7 @@ async def post_audit(
     _validate_upload(filename, data, ctx.max_upload_bytes)
     digest = sha256_bytes(data)
     audit_id = audit_id_for(actor, digest)
+    request.state.audit_id = audit_id
     dest = ctx.store.dest_dir(audit_id)
     live = await ctx.bus.get_live(audit_id)
     if live and live.status in {"queued", "running"}:
@@ -151,6 +152,7 @@ async def get_audit(
 ) -> JSONResponse:
     actor = _actor(x_actor_id)
     ctx = _ctx(request)
+    request.state.audit_id = audit_id
     dest = ctx.store.dest_dir(audit_id)
     owner = _owner(dest, actor)
     status, stage, error = await _resolve_status(ctx, dest, audit_id)
@@ -177,6 +179,7 @@ async def get_report(
 ) -> JSONResponse:
     actor = _actor(x_actor_id)
     ctx = _ctx(request)
+    request.state.audit_id = audit_id
     dest = ctx.store.dest_dir(audit_id)
     _owner(dest, actor)
     path = dest / "report.json"
@@ -196,6 +199,7 @@ async def post_answers(
 ) -> JSONResponse:
     actor = _actor(x_actor_id)
     ctx = _ctx(request)
+    request.state.audit_id = audit_id
     dest = ctx.store.dest_dir(audit_id)
     _owner(dest, actor)
     live = await ctx.bus.get_live(audit_id)

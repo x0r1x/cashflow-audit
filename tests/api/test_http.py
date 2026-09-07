@@ -418,7 +418,7 @@ def test_answers_no_questions_409(tmp_path: Path, book: Path) -> None:
         assert res.status_code == 409
 
 
-def test_healthz_skips_http_request_info(tmp_path: Path, caplog) -> None:
+def test_healthz_and_readyz_log_http_request(tmp_path: Path, caplog) -> None:
     caplog.set_level(logging.INFO, logger="cashflow_audit")
     with api_client(tmp_path) as (client, _data, _bus):
         caplog.clear()
@@ -426,7 +426,13 @@ def test_healthz_skips_http_request_info(tmp_path: Path, caplog) -> None:
         assert res.status_code == 200
         ready = client.get("/readyz")
         assert ready.status_code == 200
-    assert not any(r.__dict__.get("event") == "http_request" for r in caplog.records)
+    events = [
+        (r.__dict__.get("path"), r.__dict__.get("method"), r.__dict__.get("http_code"))
+        for r in caplog.records
+        if r.__dict__.get("event") == "http_request"
+    ]
+    assert ("/healthz", "GET", 200) in events
+    assert ("/readyz", "GET", 200) in events
 
 
 def test_post_does_not_log_upload_filename(tmp_path: Path, book: Path, caplog) -> None:
@@ -443,3 +449,55 @@ def test_post_does_not_log_upload_filename(tmp_path: Path, book: Path, caplog) -
         and r.__dict__.get("http_code") == 202
         for r in caplog.records
     )
+
+
+def _http_requests(caplog):
+    return [r for r in caplog.records if r.__dict__.get("event") == "http_request"]
+
+
+def test_audit_routes_log_http_request_with_audit_id(
+    tmp_path: Path, book: Path, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    with api_client(tmp_path) as (client, _data, _bus):
+        caplog.clear()
+        created = _post(client, book)
+        assert created.status_code == 202
+        audit_id = created.json()["audit_id"]
+        post = _http_requests(caplog)
+        assert post
+        assert post[-1].__dict__.get("path") == "/v1/audits"
+        assert post[-1].__dict__.get("audit_id") == audit_id
+        assert post[-1].__dict__.get("http_code") == 202
+
+        caplog.clear()
+        status = client.get(f"/v1/audits/{audit_id}", headers={"X-Actor-Id": "u1"})
+        assert status.status_code == 200
+        got = _http_requests(caplog)
+        assert got
+        assert got[-1].__dict__.get("path") == f"/v1/audits/{audit_id}"
+        assert got[-1].__dict__.get("audit_id") == audit_id
+        assert got[-1].__dict__.get("method") == "GET"
+
+        caplog.clear()
+        report = client.get(
+            f"/v1/audits/{audit_id}/report", headers={"X-Actor-Id": "u1"}
+        )
+        assert report.status_code == 409
+        rep = _http_requests(caplog)
+        assert rep
+        assert rep[-1].__dict__.get("path") == f"/v1/audits/{audit_id}/report"
+        assert rep[-1].__dict__.get("audit_id") == audit_id
+        assert rep[-1].__dict__.get("http_code") == 409
+
+        caplog.clear()
+        answers = client.post(
+            f"/v1/audits/{audit_id}/answers",
+            headers={"X-Actor-Id": "u1"},
+            json={"answers": []},
+        )
+        assert answers.status_code == 409
+        ans = _http_requests(caplog)
+        assert ans
+        assert ans[-1].__dict__.get("path") == f"/v1/audits/{audit_id}/answers"
+        assert ans[-1].__dict__.get("audit_id") == audit_id

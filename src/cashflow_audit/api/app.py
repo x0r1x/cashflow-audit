@@ -20,13 +20,20 @@ from cashflow_audit.api.probes import (
 from cashflow_audit.api.routes import router
 from cashflow_audit.api.workers import daily_sweep, reconcile, sweep_expired, worker_loop
 from cashflow_audit.errors import AuditError
-from cashflow_audit.observability import configure_logging, log_event
+from cashflow_audit.observability import audit_id_var, configure_logging, log_event
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, JobBus
 from cashflow_audit.settings import Settings
 from cashflow_audit.store.disk import DiskStore
 
 _LOGGER = logging.getLogger("cashflow_audit.api")
-_SKIP_HTTP_INFO = frozenset({"/healthz", "/readyz"})
+_AUDITS_PREFIX = "/v1/audits/"
+
+
+def _audit_id_from_path(path: str) -> str | None:
+    if not path.startswith(_AUDITS_PREFIX):
+        return None
+    ident = path[len(_AUDITS_PREFIX) :].split("/", 1)[0]
+    return ident or None
 
 
 def create_app(
@@ -99,9 +106,14 @@ def create_app(
     @app.middleware("http")
     async def _log_http(request: Request, call_next: Callable) -> Response:
         started = time.monotonic()
-        response = await call_next(request)
         path = request.url.path
-        if path not in _SKIP_HTTP_INFO:
+        path_id = _audit_id_from_path(path)
+        token = audit_id_var.set(path_id) if path_id else None
+        try:
+            response = await call_next(request)
+            audit_id = path_id or getattr(request.state, "audit_id", None)
+            if audit_id and token is None:
+                token = audit_id_var.set(audit_id)
             log_event(
                 _LOGGER,
                 logging.INFO,
@@ -111,8 +123,12 @@ def create_app(
                 path=path,
                 http_code=response.status_code,
                 duration_ms=int((time.monotonic() - started) * 1000),
+                audit_id=audit_id,
             )
-        return response
+            return response
+        finally:
+            if token is not None:
+                audit_id_var.reset(token)
 
     return app
 
