@@ -20,6 +20,8 @@ def test_defaults_without_env(monkeypatch) -> None:
         "JOB_TIMEOUT_SEC",
         "JOB_LLM_BUDGET",
         "JOB_EMBED_BUDGET",
+        "LOG_LEVEL",
+        "LOG_JSON",
     ):
         monkeypatch.delenv(key, raising=False)
     settings = Settings(_env_file=None)
@@ -31,6 +33,8 @@ def test_defaults_without_env(monkeypatch) -> None:
     assert settings.job_llm_budget == 20
     assert settings.job_embed_budget == 4
     assert settings.llm_model == "qwen3.6-27b-fp8"
+    assert settings.log_level == "INFO"
+    assert settings.log_json is True
     assert settings.chat() is None
     assert settings.embed() is None
 

@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     job_llm_budget: int = 20
     job_embed_budget: int = 4
 
+    log_level: str = "INFO"
+    log_json: bool = True
+
     @property
     def inflight(self) -> int:
         return self.max_inflight if self.max_inflight is not None else self.worker_concurrency
@@ -44,8 +47,14 @@ class Settings(BaseSettings):
             raise RuntimeError("REDIS_URL required for serve")
         return self.redis_url
 
+    def llm_configured(self) -> bool:
+        return bool(self.llm_base_url and self.llm_api_key)
+
+    def embed_configured(self) -> bool:
+        return bool(self.embedding_base_url and self.embedding_api_key and self.embedding_model)
+
     def chat(self) -> ChatPort | None:
-        if not self.llm_base_url or not self.llm_api_key:
+        if not self.llm_configured():
             return None
         from cashflow_audit.adapters.openai_chat import OpenAIChat
 
@@ -56,7 +65,7 @@ class Settings(BaseSettings):
         )
 
     def embed(self) -> EmbedPort | None:
-        if not self.embedding_base_url or not self.embedding_api_key or not self.embedding_model:
+        if not self.embed_configured():
             return None
         from cashflow_audit.adapters.openai_embed import OpenAIEmbed
 
