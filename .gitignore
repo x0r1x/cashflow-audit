@@ -218,8 +218,12 @@ __marimo__/
 .streamlit/secrets.toml
 
 # cashflow-audit runtime data (never commit client books)
+resources/
 data/audits/
 data/glossary/
 data/taxonomy_embeddings.npz
 data/taxonomy_embeddings.npz.lock
 .worktrees/
+
+# ai assistant
+.grok/
