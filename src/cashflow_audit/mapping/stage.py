@@ -1,14 +1,19 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 
 from cashflow_audit.layout.models import Layout
 from cashflow_audit.mapping.cascade import map_layout
 from cashflow_audit.mapping.models import Concept, MappingDocument
 from cashflow_audit.mapping.taxonomy import load_taxonomy
+from cashflow_audit.observability import log_event
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort, SlotGate
 from cashflow_audit.store.fs import read_parquet, write_json
+
+_LOGGER = logging.getLogger("cashflow_audit.mapping")
 
 
 def mapping_workbook(
@@ -25,7 +30,9 @@ def mapping_workbook(
 ) -> MappingDocument:
     path = dest_dir / "mapping.json"
     if path.exists():
+        log_event(_LOGGER, logging.INFO, "stage_skip", "artifact exists", stage="mapping")
         return MappingDocument.model_validate_json(path.read_text(encoding="utf-8"))
+    t0 = time.monotonic()
     layout = Layout.model_validate(
         json.loads((dest_dir / "layout.json").read_text(encoding="utf-8"))
     )
@@ -46,4 +53,12 @@ def mapping_workbook(
         embedding_model=embedding_model,
     )
     write_json(path, doc.model_dump(mode="json"))
+    log_event(
+        _LOGGER,
+        logging.INFO,
+        "stage_done",
+        "mapping done",
+        stage="mapping",
+        duration_ms=int((time.monotonic() - t0) * 1000),
+    )
     return doc

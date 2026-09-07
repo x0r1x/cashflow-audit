@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 
 from cashflow_audit.checkers.context import CheckContext
@@ -11,14 +13,19 @@ from cashflow_audit.compile.models import Edge
 from cashflow_audit.ir.catalog import IrCatalog
 from cashflow_audit.layout.models import Layout
 from cashflow_audit.mapping.models import MappingDocument
+from cashflow_audit.observability import log_event
 from cashflow_audit.series.models import SeriesOutlier
 from cashflow_audit.store.fs import read_parquet, write_json
+
+_LOGGER = logging.getLogger("cashflow_audit.checkers")
 
 
 def check_workbook(dest_dir: Path, catalog: IrCatalog | None = None) -> CheckDocument:
     path = dest_dir / "candidates.json"
     if path.exists():
+        log_event(_LOGGER, logging.INFO, "stage_skip", "artifact exists", stage="check")
         return CheckDocument.model_validate_json(path.read_text(encoding="utf-8"))
+    t0 = time.monotonic()
     cells = read_parquet(dest_dir / "ir" / "cells.parquet")
     edge_rows = read_parquet(dest_dir / "ir" / "edges.parquet")
     edges = [Edge.model_validate(_edge_dict(row)) for row in edge_rows]
@@ -40,6 +47,14 @@ def check_workbook(dest_dir: Path, catalog: IrCatalog | None = None) -> CheckDoc
     )
     doc = run_checks(ctx)
     write_json(path, doc.model_dump(mode="json"))
+    log_event(
+        _LOGGER,
+        logging.INFO,
+        "stage_done",
+        "check done",
+        stage="check",
+        duration_ms=int((time.monotonic() - t0) * 1000),
+    )
     return doc
 
 

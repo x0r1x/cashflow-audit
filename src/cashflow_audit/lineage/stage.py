@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import time
 from pathlib import Path
 
 from cashflow_audit.checkers.models import CheckDocument
@@ -8,13 +10,18 @@ from cashflow_audit.compile.models import Edge
 from cashflow_audit.lineage.models import LineageDocument
 from cashflow_audit.lineage.trace import trace_lineage
 from cashflow_audit.mapping.models import MappingDocument
+from cashflow_audit.observability import log_event
 from cashflow_audit.store.fs import read_parquet, write_json
+
+_LOGGER = logging.getLogger("cashflow_audit.lineage")
 
 
 def lineage_workbook(dest_dir: Path) -> LineageDocument:
     path = dest_dir / "lineage.json"
     if path.exists():
+        log_event(_LOGGER, logging.INFO, "stage_skip", "artifact exists", stage="lineage")
         return LineageDocument.model_validate_json(path.read_text(encoding="utf-8"))
+    t0 = time.monotonic()
     check = CheckDocument.model_validate_json(
         (dest_dir / "candidates.json").read_text(encoding="utf-8")
     )
@@ -39,4 +46,12 @@ def lineage_workbook(dest_dir: Path) -> LineageDocument:
     csr = build_csr(edges, extra_nodes=extra)
     doc = trace_lineage(check.candidates, csr=csr, mapping=mapping)
     write_json(path, doc.model_dump(mode="json"))
+    log_event(
+        _LOGGER,
+        logging.INFO,
+        "stage_done",
+        "lineage done",
+        stage="lineage",
+        duration_ms=int((time.monotonic() - t0) * 1000),
+    )
     return doc

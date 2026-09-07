@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
 from pathlib import Path
 
 from cashflow_audit.checkers.models import CheckDocument
@@ -8,8 +10,11 @@ from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.explain.models import JobMeta, Report
 from cashflow_audit.lineage.models import LineageDocument
 from cashflow_audit.mapping.models import MappingDocument
+from cashflow_audit.observability import log_event
 from cashflow_audit.ports.protocols import ChatPort, SlotGate
 from cashflow_audit.store.fs import read_parquet, write_json
+
+_LOGGER = logging.getLogger("cashflow_audit.explain")
 
 
 def explain_workbook(
@@ -24,7 +29,9 @@ def explain_workbook(
     report_path = dest_dir / "report.json"
     meta_path = dest_dir / "meta.json"
     if report_path.exists() and meta_path.exists():
+        log_event(_LOGGER, logging.INFO, "stage_skip", "artifact exists", stage="explain")
         return Report.model_validate_json(report_path.read_text(encoding="utf-8"))
+    t0 = time.monotonic()
     owner = {}
     owner_path = dest_dir / "owner.json"
     if owner_path.exists():
@@ -63,5 +70,13 @@ def explain_workbook(
     write_json(
         meta_path,
         JobMeta(status=report.status, stage="done", error=None).model_dump(mode="json"),
+    )
+    log_event(
+        _LOGGER,
+        logging.INFO,
+        "stage_done",
+        "explain done",
+        stage="explain",
+        duration_ms=int((time.monotonic() - t0) * 1000),
     )
     return report

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import logging
 from pathlib import Path
 
 from cashflow_audit.app.pipeline import Pipeline
@@ -59,14 +60,38 @@ def test_skip_second_run_does_not_call_llm(tmp_path: Path, dest: Path) -> None:
     assert second_embed.calls == 0
 
 
-def test_port_error_does_not_raise(tmp_path: Path, dest: Path) -> None:
+def test_second_run_logs_stage_skip(tmp_path: Path, dest: Path, caplog) -> None:
+    source = _book(tmp_path / "m.xlsx")
+    Pipeline(chat=FakeChat(), embed=FakeEmbed(), slots=GrantSlots()).run(source, dest)
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    Pipeline(chat=FakeChat(), embed=FakeEmbed(), slots=GrantSlots()).run(source, dest)
+    events = [r.__dict__.get("event") for r in caplog.records]
+    assert "stage_skip" in events
+    assert any(
+        r.__dict__.get("stage") == "parse" and r.__dict__.get("event") == "stage_skip"
+        for r in caplog.records
+    )
+
+
+def test_port_error_does_not_raise(tmp_path: Path, dest: Path, caplog) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
     source = _book(tmp_path / "m.xlsx")
     report = Pipeline(chat=FakeChat(), embed=BoomEmbed(), slots=GrantSlots()).run(source, dest)
     assert isinstance(report, Report)
     assert report.status in {"succeeded", "needs_input", "degraded"}
+    blob = "\n".join(r.getMessage() for r in caplog.records)
+    extras = "\n".join(f"{k}={v}" for r in caplog.records for k, v in r.__dict__.items())
+    dumped = f"{blob}\n{extras}"
+    assert "Revenue" not in dumped
+    assert "formula_raw" not in dumped
+    assert "=A1" not in dumped
+    assert "m.xlsx" not in dumped
 
 
-def test_timeout_writes_failed_and_releases_run_slot(tmp_path: Path, dest: Path) -> None:
+def test_timeout_writes_failed_and_releases_run_slot(
+    tmp_path: Path, dest: Path, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
     source = _book(tmp_path / "m.xlsx")
     slots = RecordingSlots()
     ticks = iter([0.0, 100.0, 100.0, 100.0])
@@ -82,6 +107,11 @@ def test_timeout_writes_failed_and_releases_run_slot(tmp_path: Path, dest: Path)
     assert meta["status"] == "failed"
     assert meta["error"] == "timeout"
     assert "run" in slots.released
+    assert any(
+        r.__dict__.get("event") == "pipeline_fail"
+        and r.__dict__.get("error_code") == "timeout"
+        for r in caplog.records
+    )
 
 
 def test_catalog_closed_after_run(tmp_path: Path, dest: Path) -> None:
