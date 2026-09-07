@@ -32,5 +32,6 @@ class OpenAIEmbed:
                 model=self.model,
                 http_status=status_code,
                 latency_ms=int((time.monotonic() - t0) * 1000),
+                exc_type=type(exc).__name__,
             )
             raise PortError("embed failed", port="embed", status_code=status_code) from exc

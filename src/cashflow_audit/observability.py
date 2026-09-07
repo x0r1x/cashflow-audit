@@ -51,6 +51,7 @@ _ALLOWED_EXTRA = frozenset(
         "path",
         "method",
         "http_code",
+        "exc_type",
     }
 )
 

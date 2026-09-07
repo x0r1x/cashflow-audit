@@ -52,6 +52,7 @@ def test_chat_failure_logs_status_not_prompt() -> None:
     assert payload["http_status"] == 500
     assert payload["port"] == "chat"
     assert payload["model"] == "qwen3.6-27b-fp8"
+    assert payload["exc_type"] == "Exception"
     assert "latency_ms" in payload
 
 
@@ -83,6 +84,7 @@ def test_embed_failure_logs_status_not_prompt() -> None:
     assert payload["http_status"] == 500
     assert payload["port"] == "embed"
     assert payload["model"] == "qwen3-embedding-8b"
+    assert payload["exc_type"] == "Exception"
     assert "latency_ms" in payload
 
 
