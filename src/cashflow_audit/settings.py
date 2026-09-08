@@ -1,10 +1,45 @@
 from __future__ import annotations
 
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort
+
+_LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+
+
+def _blank_to_none(value: object) -> object:
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
+def _loopback_rewrite_host() -> str | None:
+    return "host.docker.internal" if Path("/.dockerenv").exists() else None
+
+
+def normalize_openai_base_url(url: str, *, rewrite_loopback_to: str | None = None) -> str:
+    parts = urlsplit(url.strip())
+    path = parts.path.rstrip("/")
+    if path in {"", "/api/v1"}:
+        path = "/v1"
+    netloc = parts.netloc
+    host = parts.hostname
+    if rewrite_loopback_to and host in _LOOPBACK_HOSTS:
+        userinfo = ""
+        if parts.username:
+            userinfo = parts.username
+            if parts.password is not None:
+                userinfo += f":{parts.password}"
+            userinfo += "@"
+        hostport = rewrite_loopback_to
+        if parts.port is not None:
+            hostport = f"{hostport}:{parts.port}"
+        netloc = f"{userinfo}{hostport}"
+    return urlunsplit((parts.scheme, netloc, path, parts.query, parts.fragment))
 
 
 class Settings(BaseSettings):
@@ -38,6 +73,26 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
+    @field_validator(
+        "redis_url",
+        "llm_base_url",
+        "llm_api_key",
+        "embedding_base_url",
+        "embedding_api_key",
+        "embedding_model",
+        mode="before",
+    )
+    @classmethod
+    def blank_str_to_none(cls, value: object) -> object:
+        return _blank_to_none(value)
+
+    @field_validator("llm_base_url", "embedding_base_url", mode="after")
+    @classmethod
+    def openai_compatible_base(cls, value: str | None) -> str | None:
+        if not value:
+            return None
+        return normalize_openai_base_url(value, rewrite_loopback_to=_loopback_rewrite_host())
+
     @property
     def inflight(self) -> int:
         return self.max_inflight if self.max_inflight is not None else self.worker_concurrency
@@ -48,10 +103,10 @@ class Settings(BaseSettings):
         return self.redis_url
 
     def llm_configured(self) -> bool:
-        return bool(self.llm_base_url and self.llm_api_key)
+        return bool(self.llm_base_url)
 
     def embed_configured(self) -> bool:
-        return bool(self.embedding_base_url and self.embedding_api_key and self.embedding_model)
+        return bool(self.embedding_base_url and self.embedding_model)
 
     def chat(self) -> ChatPort | None:
         if not self.llm_configured():

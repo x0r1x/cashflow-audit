@@ -220,6 +220,10 @@ __marimo__/
 # macOS
 .DS_Store
 
+# HTTP probe dumps (reports from scripts/probe)
+scripts/probe-out/
+probe-out/
+
 # cashflow-audit runtime data (never commit client books)
 resources/
 data/audits/

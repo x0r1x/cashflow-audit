@@ -62,10 +62,11 @@ GET /healthz HTTP/1.1
 
 Проверка LLM/embeddings на /readyz — дешёвая:
 GET {LLM_BASE_URL}/models (timeout 2s) и наличие LLM_MODEL в data[].id.
+`LLM_BASE_URL` / `EMBEDDING_BASE_URL` — OpenAI-compatible корень со `/v1` (не native `/api/v1/chat`).
 То же для embeddings. HTTP не 2xx, timeout, connect, model_missing → порт down.
 Не вызываем /chat/completions и /embeddings здесь (слот GPU).
 
-Unset (нет URL+ключа): поле llm/embeddings = false, status остаётся ready.
+Unset (нет URL; для embeddings ещё нет `EMBEDDING_MODEL`): поле llm/embeddings = false, status остаётся ready. `LLM_API_KEY` / `EMBEDDING_API_KEY` опциональны: локальный сервер без ключа всё равно configured.
 Configured и down: status=degraded, HTTP 200, аудиты принимаем (шаблоны + глоссарий).
 
 Глубокий ping (POST ping, max_tokens=1) — старт процесса и CLI `cashflow-audit ping`.

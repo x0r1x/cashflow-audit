@@ -103,7 +103,7 @@ CLI вызывает тот же `Pipeline.run` без Redis: файл → `repo
 
 ```bash
 uv sync
-cp .env.example .env          # по желанию: LLM_* и EMBEDDING_*
+cp .env.example .env          # по желанию: URL моделей; ключ не обязателен
 uv run cashflow-audit audit ./model.xlsx -o ./report.json
 ```
 
@@ -139,9 +139,51 @@ GET  /readyz
 
 Тела запросов и коды: [`docs/architecture/api.md`](docs/architecture/api.md).
 
+Проверка всех роутов скриптами (`curl` + `python3`). Сервис уже должен слушать порт.
+
+```bash
+# терминал 1
+.venv/bin/cashflow-audit serve --host 127.0.0.1 --port 8080
+
+# терминал 2
+bash scripts/probe/run.sh
+```
+
+`run.sh` вызывает:
+
+| Метод | Путь |
+|---|---|
+| GET | `/healthz` |
+| GET | `/readyz` |
+| POST | `/v1/audits` — `sample_full_model.xlsx` |
+| GET | `/v1/audits/{id}` — пока не терминальный статус |
+| GET | `/v1/audits/{id}/report` |
+| POST | `/v1/audits/{id}/answers` — первый option каждой `question` |
+
+Ответы: `scripts/probe-out/YYYYMMDD-HHMMSS/` (gitignore). Если questions пусты, answers даёт `409` — маршрут всё равно вызван. После `202` скрипт снова ждёт статус и качает отчёт.
+
+```bash
+bash scripts/probe/health.sh    # только /healthz и /readyz
+bash scripts/probe/audit.sh     # POST audits → report → answers
+BASE_URL=http://127.0.0.1:8080 PROBE_TIMEOUT_SEC=600 bash scripts/probe/run.sh
+```
+
+Подробности, переменные и разбор ошибок: [`scripts/probe/README.md`](scripts/probe/README.md).
+
 ### Docker
 
 В образе нет весов моделей. Redis — sidecar, LLM и embeddings — с хоста через env.
+
+Порты моделей — OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`), не native `/api/v1/chat`. В `.env` для compose:
+
+```bash
+LLM_BASE_URL=http://host.docker.internal:1234/v1
+LLM_MODEL=google/gemma-4-e2b
+EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
+EMBEDDING_MODEL=text-embedding-qwen3-embedding-0.6b
+```
+
+В контейнере `127.0.0.1`/`localhost` сами переписываются в `host.docker.internal`; путь `/api/v1` — в OpenAI `/v1`. Ключ можно оставить пустым. `EMBEDDING_MODEL` должен совпасть с `id` из `GET /v1/models`.
 
 ```bash
 cp .env.example .env
@@ -162,7 +204,7 @@ docker compose up --build
 
 `LLM_BASE_URL` и `EMBEDDING_BASE_URL` независимы: эмбедер не подставляет URL чата.
 
-Для `serve` нужен `REDIS_URL`. Без `LLM_*` / `EMBEDDING_*` сервис поднимается, порты просто молчат.
+Для `serve` нужен `REDIS_URL`. Без `LLM_BASE_URL` / `EMBEDDING_BASE_URL` сервис поднимается, порты просто молчат. Ключ API не обязателен.
 
 ## Тесты
 

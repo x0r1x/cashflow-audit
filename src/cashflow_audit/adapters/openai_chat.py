@@ -11,22 +11,30 @@ from cashflow_audit.observability import log_event
 _LOGGER = logging.getLogger(__name__)
 
 
+_PLACEHOLDER_KEY = "not-needed"
+
+
 class OpenAIChat:
-    def __init__(self, *, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, *, base_url: str, api_key: str | None, model: str) -> None:
         from openai import OpenAI
 
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = OpenAI(base_url=base_url, api_key=api_key or _PLACEHOLDER_KEY)
         self.model = model
 
     def complete_json(self, schema: type[BaseModel], messages: list) -> BaseModel:
         t0 = time.monotonic()
         try:
-            response = self._client.chat.completions.create(
+            response = self._client.chat.completions.parse(
                 model=self.model,
                 messages=messages,
-                response_format={"type": "json_object"},
+                response_format=schema,
+                tool_choice="none",
             )
-            content = response.choices[0].message.content or "{}"
+            message = response.choices[0].message
+            parsed = getattr(message, "parsed", None)
+            if isinstance(parsed, schema):
+                return parsed
+            content = getattr(message, "content", None) or "{}"
             return schema.model_validate_json(content)
         except Exception as exc:
             status_code = getattr(exc, "status_code", None)

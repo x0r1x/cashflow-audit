@@ -20,8 +20,9 @@
 
 ```
 REDIS_URL=redis://127.0.0.1:6379/0
-LLM_BASE_URL  LLM_API_KEY  LLM_MODEL=qwen3.6-27b-fp8
-EMBEDDING_BASE_URL  EMBEDDING_API_KEY  EMBEDDING_MODEL=...
+LLM_BASE_URL=…/v1  LLM_MODEL=…  [LLM_API_KEY опционален]
+EMBEDDING_BASE_URL=…/v1  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY опционален]
+# OpenAI-compatible: {base}/chat/completions, {base}/embeddings, {base}/models
 ```
 
 Нет GPU/весов в репозитории, нет Postgres/SQLite/S3/Polars, нет DuckDB-сервера. Redis только loopback пода. Нет LLM/embeddings — аудит завершается (`degraded` или `needs_input`, шаблоны + глоссарий).

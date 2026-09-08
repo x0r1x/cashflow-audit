@@ -1,7 +1,9 @@
 # Redis is the only sidecar. LLM and embeddings stay outside the pod:
 # copy .env.example → .env (or export) LLM_* and EMBEDDING_* separately.
-# Compose reads host .env for interpolation; REDIS_URL inside the network
-# always points at the sidecar, not 127.0.0.1 from .env.example.
+# OpenAI-compatible only: LLM_BASE_URL / EMBEDDING_BASE_URL must include /v1
+# (…/v1/chat/completions, …/v1/embeddings, …/v1/models). Native /api/v1/chat is not used.
+# Compose interpolates host .env; REDIS_URL inside the network is the sidecar.
+# From the app container, models on the host are host.docker.internal, not 127.0.0.1.
 services:
   redis:
     image: redis:7-alpine
@@ -38,6 +40,8 @@ services:
       AUDIT_TTL_DAYS: ${AUDIT_TTL_DAYS:-14}
       JOB_LLM_BUDGET: ${JOB_LLM_BUDGET:-20}
       JOB_EMBED_BUDGET: ${JOB_EMBED_BUDGET:-4}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - audit-data:/data
     depends_on:

@@ -3,7 +3,8 @@ from __future__ import annotations
 import inspect
 import logging
 import time
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
@@ -16,6 +17,7 @@ from cashflow_audit.settings import Settings
 
 _LOGGER = logging.getLogger("cashflow_audit.api.probes")
 _LAST_PROBE: dict[str, tuple[object, ...]] = {}
+_PLACEHOLDER_KEY = "not-needed"
 
 
 @dataclass(frozen=True)
@@ -45,23 +47,47 @@ def _safe_target(url: str) -> str:
     return f"{host}{parts.path}"
 
 
-def _extract_ids(payload: object) -> list[str] | None:
-    if not isinstance(payload, dict):
-        return None
-    data = payload.get("data")
-    if not isinstance(data, list):
-        return None
-    ids: list[str] = []
-    for item in data:
-        if isinstance(item, dict):
-            mid = item.get("id")
-            if isinstance(mid, str):
-                ids.append(mid)
-    return ids
+_EMBED_ID_PREFIX = "text-embedding-"
 
 
 def _id_matches(mid: str, model: str) -> bool:
-    return mid == model or mid.rsplit("/", 1)[-1] == model
+    if mid == model or mid.rsplit("/", 1)[-1] == model:
+        return True
+    return mid == _EMBED_ID_PREFIX + model or model == _EMBED_ID_PREFIX + mid
+
+
+@asynccontextmanager
+async def _openai_client(
+    *,
+    base_url: str,
+    api_key: str | None,
+    timeout: float,
+    transport: httpx.BaseTransport | None,
+) -> AsyncIterator[Any]:
+    from openai import AsyncOpenAI
+
+    http = httpx.AsyncClient(timeout=timeout, transport=transport)
+    client = AsyncOpenAI(
+        base_url=base_url,
+        api_key=api_key or _PLACEHOLDER_KEY,
+        http_client=http,
+    )
+    try:
+        yield client
+    finally:
+        await client.close()
+
+
+def _openai_fail(exc: BaseException) -> tuple[str, int | None]:
+    from openai import APIConnectionError, APIStatusError, APITimeoutError
+
+    if isinstance(exc, (APITimeoutError, httpx.TimeoutException)):
+        return "timeout", None
+    if isinstance(exc, APIStatusError):
+        return f"http_{exc.status_code}", exc.status_code
+    if isinstance(exc, APIConnectionError):
+        return "connect", None
+    return "connect", None
 
 
 def _emit(
@@ -107,7 +133,7 @@ async def probe_models(
     transport: httpx.BaseTransport | None = None,
     port: str | None = None,
 ) -> ProbeResult:
-    if not base_url or not api_key:
+    if not base_url:
         return _emit(
             ProbeResult(configured=False, reachable=False, model_present=None, error="unset"),
             msg="models probe unset",
@@ -118,53 +144,45 @@ async def probe_models(
         )
 
     url = base_url.rstrip("/") + "/models"
-    headers = {"Authorization": f"Bearer {api_key}"}
     msg = _safe_target(url)
     try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-            response = await client.get(url, headers=headers)
-    except httpx.TimeoutException:
-        return _emit(
-            ProbeResult(configured=True, reachable=False, model_present=None, error="timeout"),
-            msg=msg,
-            port=port,
-            model=model,
-            http_status=None,
-            reason="timeout",
-        )
-    except Exception:
-        return _emit(
-            ProbeResult(configured=True, reachable=False, model_present=None, error="connect"),
-            msg=msg,
-            port=port,
-            model=model,
-            http_status=None,
-            reason="connect",
-        )
+        async with _openai_client(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            transport=transport,
+        ) as client:
+            page = await client.models.list()
+    except Exception as exc:
+        from openai import APIResponseValidationError
 
-    if response.status_code < 200 or response.status_code >= 300:
-        error = f"http_{response.status_code}"
+        if isinstance(exc, APIResponseValidationError):
+            return _emit(
+                ProbeResult(configured=True, reachable=True, model_present=None, error=None),
+                msg=msg,
+                port=port,
+                model=model,
+                http_status=getattr(exc, "status_code", 200) or 200,
+                reason="unparsed_models",
+            )
+        error, status = _openai_fail(exc)
         return _emit(
             ProbeResult(configured=True, reachable=False, model_present=None, error=error),
             msg=msg,
             port=port,
             model=model,
-            http_status=response.status_code,
+            http_status=status,
             reason=error,
         )
 
-    try:
-        payload: object = response.json()
-    except Exception:
-        payload = None
-    ids = _extract_ids(payload)
+    ids = [item.id for item in (page.data or []) if getattr(item, "id", None)]
     if not ids:
         return _emit(
             ProbeResult(configured=True, reachable=True, model_present=None, error=None),
             msg=msg,
             port=port,
             model=model,
-            http_status=response.status_code,
+            http_status=200,
             reason="unparsed_models",
         )
     if model is not None and any(_id_matches(mid, model) for mid in ids):
@@ -173,7 +191,7 @@ async def probe_models(
             msg=msg,
             port=port,
             model=model,
-            http_status=response.status_code,
+            http_status=200,
             reason=None,
         )
     return _emit(
@@ -181,7 +199,7 @@ async def probe_models(
         msg=msg,
         port=port,
         model=model,
-        http_status=response.status_code,
+        http_status=200,
         reason="model_missing",
     )
 
@@ -217,19 +235,19 @@ def _emit_ping(
     return result
 
 
-async def _post_ping(
+async def _sdk_ping(
     base_url: str | None,
     api_key: str | None,
     model: str | None,
     *,
     path: str,
-    payload: dict[str, object],
     event: str,
     port: str,
     timeout: float,
     transport: httpx.BaseTransport | None,
+    call: Callable[[Any], Awaitable[Any]],
 ) -> ProbeResult:
-    if not base_url or not api_key:
+    if not base_url:
         return _emit_ping(
             _UNSET_RESULT,
             event=event,
@@ -241,52 +259,20 @@ async def _post_ping(
             latency_ms=None,
         )
     url = base_url.rstrip("/") + path
-    headers = {"Authorization": f"Bearer {api_key}"}
     msg = _safe_target(url)
     started = time.perf_counter()
     latency_ms: int | None = None
     try:
-        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
-            response = await client.post(url, headers=headers, json=payload)
-    except httpx.TimeoutException:
+        async with _openai_client(
+            base_url=base_url,
+            api_key=api_key,
+            timeout=timeout,
+            transport=transport,
+        ) as client:
+            await call(client)
+    except Exception as exc:
         latency_ms = int((time.perf_counter() - started) * 1000)
-        return _emit_ping(
-            ProbeResult(
-                configured=True,
-                reachable=False,
-                model_present=None,
-                error="timeout",
-                latency_ms=latency_ms,
-            ),
-            event=event,
-            msg=msg,
-            port=port,
-            model=model,
-            http_status=None,
-            reason="timeout",
-            latency_ms=latency_ms,
-        )
-    except Exception:
-        latency_ms = int((time.perf_counter() - started) * 1000)
-        return _emit_ping(
-            ProbeResult(
-                configured=True,
-                reachable=False,
-                model_present=None,
-                error="connect",
-                latency_ms=latency_ms,
-            ),
-            event=event,
-            msg=msg,
-            port=port,
-            model=model,
-            http_status=None,
-            reason="connect",
-            latency_ms=latency_ms,
-        )
-    latency_ms = int((time.perf_counter() - started) * 1000)
-    if response.status_code < 200 or response.status_code >= 300:
-        error = f"http_{response.status_code}"
+        error, status = _openai_fail(exc)
         return _emit_ping(
             ProbeResult(
                 configured=True,
@@ -299,10 +285,11 @@ async def _post_ping(
             msg=msg,
             port=port,
             model=model,
-            http_status=response.status_code,
+            http_status=status,
             reason=error,
             latency_ms=latency_ms,
         )
+    latency_ms = int((time.perf_counter() - started) * 1000)
     return _emit_ping(
         ProbeResult(
             configured=True,
@@ -315,7 +302,7 @@ async def _post_ping(
         msg=msg,
         port=port,
         model=model,
-        http_status=response.status_code,
+        http_status=200,
         reason=None,
         latency_ms=latency_ms,
     )
@@ -326,24 +313,28 @@ async def ping_chat(
     api_key: str | None,
     model: str | None,
     *,
-    timeout: float = 10.0,
+    timeout: float = 30.0,
     transport: httpx.BaseTransport | None = None,
 ) -> ProbeResult:
-    return await _post_ping(
+    async def _call(client: Any) -> Any:
+        return await client.chat.completions.create(
+            model=model or "",
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+            stream=False,
+            tool_choice="none",
+        )
+
+    return await _sdk_ping(
         base_url,
         api_key,
         model,
         path="/chat/completions",
-        payload={
-            "model": model,
-            "messages": [{"role": "user", "content": "ping"}],
-            "max_tokens": 1,
-            "stream": False,
-        },
         event="ping_chat",
         port="llm",
         timeout=timeout,
         transport=transport,
+        call=_call,
     )
 
 
@@ -355,16 +346,19 @@ async def ping_embed(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
 ) -> ProbeResult:
-    return await _post_ping(
+    async def _call(client: Any) -> Any:
+        return await client.embeddings.create(model=model or "", input=["ping"])
+
+    return await _sdk_ping(
         base_url,
         api_key,
         model,
         path="/embeddings",
-        payload={"model": model, "input": ["ping"]},
         event="ping_embed",
         port="embed",
         timeout=timeout,
         transport=transport,
+        call=_call,
     )
 
 

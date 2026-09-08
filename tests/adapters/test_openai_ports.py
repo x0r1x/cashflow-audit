@@ -21,12 +21,47 @@ def _boom(status_code: int = 500) -> Exception:
     return exc
 
 
+def test_chat_complete_json_uses_sdk_parse() -> None:
+    seen: dict[str, object] = {}
+
+    class FakeCompletions:
+        def parse(self, **kwargs):
+            seen.update(kwargs)
+
+            class _Msg:
+                parsed = _Schema(x="ok")
+                content = None
+
+            class _Choice:
+                message = _Msg()
+
+            class _Resp:
+                choices = [_Choice()]
+
+            return _Resp()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    port = OpenAIChat.__new__(OpenAIChat)
+    port._client = FakeClient()
+    port.model = "gemma"
+    got = port.complete_json(_Schema, [{"role": "user", "content": "hi"}])
+    assert got == _Schema(x="ok")
+    assert seen["tool_choice"] == "none"
+    assert seen["model"] == "gemma"
+    assert seen["response_format"] is _Schema
+
+
 def test_chat_failure_logs_status_not_prompt() -> None:
     stream = StringIO()
     configure_logging(level="INFO", json_output=True, stream=stream)
 
     class FakeCompletions:
-        def create(self, **kwargs):
+        def parse(self, **kwargs):
             raise _boom()
 
     class FakeChat:

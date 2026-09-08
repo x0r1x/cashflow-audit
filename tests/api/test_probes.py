@@ -32,14 +32,54 @@ def test_unset_without_url() -> None:
     asyncio.run(_go())
 
 
-def test_unset_without_api_key() -> None:
+def test_probe_models_uses_openai_sdk() -> None:
     async def _go() -> None:
-        result = await probe_models("http://llm/v1", None, "qwen")
-        assert result.configured is False
-        assert result.ok is None
-        assert result.error == "unset"
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.path.endswith("/models")
+            assert "OpenAI" in request.headers.get("User-Agent", "")
+            return httpx.Response(
+                200,
+                json={"object": "list", "data": [{"id": "qwen", "object": "model"}]},
+            )
+
+        result = await probe_models(
+            "http://llm/v1",
+            None,
+            "qwen",
+            transport=_transport(handler),
+        )
+        assert result.configured is True
+        assert result.ok is True
+        assert result.model_present is True
 
     asyncio.run(_go())
+
+
+def test_ping_chat_uses_openai_sdk() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/chat/completions")
+        assert "OpenAI" in request.headers.get("User-Agent", "")
+        body = json.loads(request.content)
+        assert body["messages"][0]["content"] == "ping"
+        assert body["max_tokens"] == 1
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-ping",
+                "object": "chat.completion",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+            },
+        )
+
+    result = asyncio.run(ping_chat("http://llm/v1", None, "qwen", transport=_transport(handler)))
+    assert result.ok is True
+    assert result.configured is True
 
 
 def test_2xx_with_model_id_is_ok() -> None:
@@ -53,6 +93,26 @@ def test_2xx_with_model_id_is_ok() -> None:
             "http://llm/v1",
             "secret",
             "qwen3.6-27b-fp8",
+            transport=_transport(handler),
+        )
+        assert result.ok is True
+        assert result.model_present is True
+
+    asyncio.run(_go())
+
+
+def test_2xx_text_embedding_prefix_id_is_ok() -> None:
+    async def _go() -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "text-embedding-qwen3-embedding-0.6b"}]},
+            )
+
+        result = await probe_models(
+            "http://emb/v1",
+            "secret",
+            "qwen3-embedding-0.6b",
             transport=_transport(handler),
         )
         assert result.ok is True
@@ -267,6 +327,7 @@ def test_ping_chat_2xx() -> None:
         body = json.loads(request.content)
         assert body["messages"][0]["content"] == "ping"
         assert body["max_tokens"] == 1
+        assert body["tool_choice"] == "none"
         return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
 
     result = asyncio.run(ping_chat("http://llm/v1", "k", "qwen", transport=_transport(handler)))

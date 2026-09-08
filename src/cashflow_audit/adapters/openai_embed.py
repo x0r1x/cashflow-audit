@@ -9,11 +9,14 @@ from cashflow_audit.observability import log_event
 _LOGGER = logging.getLogger(__name__)
 
 
+_PLACEHOLDER_KEY = "not-needed"
+
+
 class OpenAIEmbed:
-    def __init__(self, *, base_url: str, api_key: str, model: str) -> None:
+    def __init__(self, *, base_url: str, api_key: str | None, model: str) -> None:
         from openai import OpenAI
 
-        self._client = OpenAI(base_url=base_url, api_key=api_key)
+        self._client = OpenAI(base_url=base_url, api_key=api_key or _PLACEHOLDER_KEY)
         self.model = model
 
     def embed(self, texts: list[str]) -> list[list[float]]:
