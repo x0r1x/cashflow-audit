@@ -185,7 +185,7 @@ Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 | `running` | пайплайн | нет |
 | `succeeded` | всё посчитано, questions пусто, порты отработали или не понадобились | да |
 | `needs_input` | отчёт есть и `questions` непусты (главнее, чем degraded) | да |
-| `degraded` | отчёт есть, questions пусто, LLM и/или embeddings не ответили | да |
+| `degraded` | отчёт есть, questions пусто, LLM не ответил, хотя eligible-находки были | да |
 | `failed` | файл не разобрали | нет |
 
 Один статус, приоритет: `failed` > `needs_input` > `degraded` > `succeeded`.

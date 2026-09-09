@@ -99,7 +99,7 @@ def compose_report(
     questions = _merge_questions(mapping.questions, check.questions, findings)
     if questions:
         status = "needs_input"
-    elif chat is not None and not llm_used:
+    elif chat is not None and llm_eligible and not llm_used:
         status = "degraded"
     else:
         status = "succeeded"

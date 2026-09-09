@@ -56,6 +56,25 @@ def test_template_is_always_complete() -> None:
     assert "не изменён" in rec or "не изменен" in rec
 
 
+def test_configured_chat_without_findings_is_succeeded() -> None:
+    chat = FakeChat(
+        payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
+    )
+    report = compose_report(
+        candidates=[],
+        lineage=LineageDocument(),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2"},
+        chat=chat,
+        slots=GrantSlots(),
+    )
+    assert report.status == "succeeded"
+    assert report.llm_used is False
+    assert report.findings == []
+    assert chat.calls == 0
+
+
 def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
     chat = FakeChat(
         payload={

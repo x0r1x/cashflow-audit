@@ -26,9 +26,14 @@ def test_sweep_skips_running_and_deletes_old_terminal(tmp_path: Path) -> None:
     running.mkdir(parents=True)
     os.utime(running, (0, 0))
     bus.live["running"] = JobState(status="running", stage="parse", actor_id="u1")
+    queued = ctx.store.dest_dir("queued")
+    queued.mkdir(parents=True)
+    os.utime(queued, (0, 0))
+    bus.live["queued"] = JobState(status="queued", stage="queued", actor_id="u1")
     asyncio.run(sweep_expired(ctx))
     assert not old.exists()
     assert running.exists()
+    assert queued.exists()
 
 
 def test_heartbeat_touches_audit(tmp_path: Path) -> None:

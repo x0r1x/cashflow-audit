@@ -5,6 +5,7 @@ import json
 import logging
 import shutil
 import time
+from pathlib import Path
 
 from cashflow_audit.adapters.slots import BusSlotGate
 from cashflow_audit.api.context import AppContext
@@ -104,7 +105,9 @@ async def _execute(job: Job, ctx: AppContext) -> None:
                 exc_type=type(exc).__name__,
                 exc_info=True,
             )
-            await ctx.bus.set_terminal(job.audit_id, "failed", stage="parse", error="internal")
+            live = await ctx.bus.get_live(job.audit_id)
+            stage, error = _fail_stage(dest, live.stage if live else None)
+            await ctx.bus.set_terminal(job.audit_id, "failed", stage=stage, error=error)
             return
         finally:
             hb.cancel()
@@ -129,6 +132,16 @@ async def _execute(job: Job, ctx: AppContext) -> None:
         await ctx.bus.set_terminal(job.audit_id, report.status, stage=stage, error=error)
     finally:
         audit_id_var.reset(token)
+
+
+def _fail_stage(dest: Path, live_stage: str | None) -> tuple[str, str]:
+    meta_path = dest / "meta.json"
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        stage = str(meta.get("stage") or live_stage or "parse")
+        error = str(meta.get("error") or "internal")
+        return stage, error
+    return (live_stage or "parse"), "internal"
 
 
 async def _heartbeat(ctx: AppContext, audit_id: str) -> None:
@@ -164,7 +177,9 @@ async def reconcile(ctx: AppContext) -> None:
         live = await ctx.bus.get_live(dest.name)
         if live and live.status in {"queued", "running"}:
             continue
-        await ctx.bus.mark_queued(dest.name, str(owner.get("actor_id") or ""))
+        await ctx.bus.mark_queued(
+            dest.name, str(owner.get("actor_id") or ""), replace_terminal=True
+        )
         await ctx.bus.enqueue(dest.name)
         count += 1
     log_event(_LOGGER, logging.INFO, "reconcile_requeue", "reconcile requeue", count=count)
@@ -180,7 +195,7 @@ async def sweep_expired(ctx: AppContext) -> None:
         if not dest.is_dir():
             continue
         live = await ctx.bus.get_live(dest.name)
-        if live and live.status == "running":
+        if live and live.status in {"running", "queued"}:
             continue
         try:
             mtime = dest.stat().st_mtime

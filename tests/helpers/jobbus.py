@@ -66,7 +66,15 @@ class MemoryJobBus:
     async def get_live(self, audit_id: str) -> JobState | None:
         return self.live.get(audit_id)
 
-    async def mark_queued(self, audit_id: str, actor_id: str) -> None:
+    async def mark_queued(
+        self, audit_id: str, actor_id: str, *, replace_terminal: bool = False
+    ) -> None:
+        prev = self.live.get(audit_id)
+        if prev is not None:
+            if prev.status in {"queued", "running"}:
+                return
+            if prev.status in {"succeeded", "degraded", "needs_input"} and not replace_terminal:
+                return
         self.live[audit_id] = JobState(
             status="queued", stage="queued", error=None, actor_id=actor_id
         )

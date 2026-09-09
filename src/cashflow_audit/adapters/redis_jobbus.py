@@ -117,9 +117,17 @@ class RedisJobBus:
             actor_id=data.get("actor_id") or None,
         )
 
-    async def mark_queued(self, audit_id: str, actor_id: str) -> None:
+    async def mark_queued(
+        self, audit_id: str, actor_id: str, *, replace_terminal: bool = False
+    ) -> None:
+        key = f"cf:job:{audit_id}"
+        current = await self._r.hget(key, "status")
+        if current in {"queued", "running"}:
+            return
+        if current in {"succeeded", "degraded", "needs_input"} and not replace_terminal:
+            return
         await self._r.hset(
-            f"cf:job:{audit_id}",
+            key,
             mapping={
                 "status": "queued",
                 "stage": "queued",
