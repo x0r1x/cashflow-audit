@@ -302,7 +302,7 @@ Label column — левая видимая строковая в блоке (ski
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | I1, I3a, I3b | IdentityResolver; нет concept → Question |
 
-IdentityResolver: один total (не сумма с детьми); период с оси layout; check-row кросс-проверка I1, не второй finding. Сигналы FCF/DSCR выкл.
+IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период с оси layout: только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. Сигналы FCF/DSCR выкл.
 
 Дедуп `(detector, frozenset(cell_refs))`.
 

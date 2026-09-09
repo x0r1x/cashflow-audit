@@ -85,12 +85,14 @@ def mapped(
     concept_id: str | None,
     *,
     role: str = "calculation",
+    block_id: str | None = None,
 ) -> MappedRow:
+    bid = block_id or f"{sheet}!r1"
     return MappedRow(
-        row_key=f"{sheet}|{row}|{sheet}!r1",
+        row_key=f"{sheet}|{row}|{bid}",
         sheet=sheet,
         row=row,
-        block_id=f"{sheet}!r1",
+        block_id=bid,
         label=label,
         concept_id=concept_id,
         article_role=role,  # type: ignore[arg-type]
