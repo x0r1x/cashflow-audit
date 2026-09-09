@@ -191,6 +191,11 @@ def test_post_existing_report_returns_200(tmp_path: Path, book: Path) -> None:
         assert body["status"] == "succeeded"
         assert body["report_url"] == f"/v1/audits/{audit_id}/report"
         assert bus.enqueue_calls == []
+        bus.live[audit_id] = JobState(status="succeeded", stage="done", actor_id="u1")
+        again = _post(client, book)
+        assert again.status_code == 200
+        assert bus.live[audit_id].status == "succeeded"
+        assert bus.enqueue_calls == []
 
 
 def test_different_actors_get_different_ids(tmp_path: Path, book: Path) -> None:
@@ -294,6 +299,7 @@ def test_answers_requeues(tmp_path: Path, book: Path) -> None:
     with api_client(tmp_path) as (client, data_root, bus):
         dest = data_root / "audits" / audit_id
         _seed_report(dest, actor="u1", filename="m.xlsx", sha=sha, questions=questions)
+        bus.live[audit_id] = JobState(status="needs_input", stage="done", actor_id="u1")
         write_json(
             dest / "mapping.json",
             {
@@ -324,6 +330,7 @@ def test_answers_requeues(tmp_path: Path, book: Path) -> None:
         assert not (dest / "mapping.json").exists()
         assert (dest / "owner.json").is_file()
         assert bus.enqueue_calls == [audit_id]
+        assert bus.live[audit_id].status == "queued"
 
 
 def test_answers_unknown_question_422(tmp_path: Path, book: Path) -> None:

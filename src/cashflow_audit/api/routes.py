@@ -19,6 +19,7 @@ from cashflow_audit.errors import AuditError
 from cashflow_audit.explain.models import Report
 from cashflow_audit.observability import log_event
 from cashflow_audit.parse.zip_guard import open_xlsx_zip
+from cashflow_audit.ports.protocols import JobState
 from cashflow_audit.store.fs import atomic_write_bytes, write_json
 
 router = APIRouter()
@@ -46,6 +47,27 @@ def _actor(raw: str | None) -> str:
     if not raw or not raw.strip():
         raise ApiError(400, "missing_actor")
     return raw.strip()
+
+
+def _live_or_report(audit_id: str, dest: Path, live: JobState | None) -> JSONResponse | None:
+    if live is not None and live.status in {"queued", "running"}:
+        return JSONResponse(
+            {"audit_id": audit_id, "status": live.status, "stage": live.stage},
+            status_code=202,
+        )
+    path = dest / "report.json"
+    if not path.exists():
+        return None
+    report = Report.model_validate_json(path.read_text(encoding="utf-8"))
+    return JSONResponse(
+        {
+            "audit_id": audit_id,
+            "status": report.status,
+            "stage": "done",
+            "report_url": f"/v1/audits/{audit_id}/report",
+        },
+        status_code=200,
+    )
 
 
 def _owner(dest: Path, actor: str) -> dict[str, Any]:
@@ -106,22 +128,9 @@ async def post_audit(
     request.state.audit_id = audit_id
     dest = ctx.store.dest_dir(audit_id)
     live = await ctx.bus.get_live(audit_id)
-    if live and live.status in {"queued", "running"}:
-        return JSONResponse(
-            {"audit_id": audit_id, "status": live.status, "stage": live.stage},
-            status_code=202,
-        )
-    if (dest / "report.json").exists():
-        report = Report.model_validate_json((dest / "report.json").read_text(encoding="utf-8"))
-        return JSONResponse(
-            {
-                "audit_id": audit_id,
-                "status": report.status,
-                "stage": "done",
-                "report_url": f"/v1/audits/{audit_id}/report",
-            },
-            status_code=200,
-        )
+    ready = _live_or_report(audit_id, dest, live)
+    if ready is not None:
+        return ready
     dest.mkdir(parents=True, exist_ok=True)
     source = dest / "source.xlsx"
     if not source.exists():
@@ -136,7 +145,11 @@ async def post_audit(
                 "source_filename": Path(filename).name,
             },
         )
-    await ctx.bus.mark_queued(audit_id, actor)
+    live = await ctx.bus.get_live(audit_id)
+    ready = _live_or_report(audit_id, dest, live)
+    if ready is not None:
+        return ready
+    await ctx.bus.mark_queued(audit_id, actor, replace_terminal=False)
     await ctx.bus.enqueue(audit_id)
     return JSONResponse(
         {"audit_id": audit_id, "status": "queued", "stage": "queued"},
@@ -224,7 +237,7 @@ async def post_answers(
         apply_hitl(dest, payload, actor_id=actor, glossary_dir=ctx.store.glossary_dir())
     finally:
         await ctx.bus.release_glossary(actor)
-    await ctx.bus.mark_queued(audit_id, actor)
+    await ctx.bus.mark_queued(audit_id, actor, replace_terminal=True)
     await ctx.bus.enqueue(audit_id)
     return JSONResponse(
         {"audit_id": audit_id, "status": "queued", "stage": "queued"},

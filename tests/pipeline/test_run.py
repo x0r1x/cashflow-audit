@@ -144,6 +144,35 @@ def test_timeout_on_compile_returns_failed_and_resets_contextvars(
     assert audit_id_var.get() is None
 
 
+def test_unexpected_error_on_check_writes_meta_and_returns_failed(
+    tmp_path: Path, dest: Path, monkeypatch, caplog
+) -> None:
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    source = _book(tmp_path / "m.xlsx")
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("checker exploded")
+
+    monkeypatch.setattr("cashflow_audit.app.pipeline.check_workbook", _boom)
+    report = Pipeline(chat=None, embed=None, slots=GrantSlots()).run(source, dest)
+    assert isinstance(report, Report)
+    assert report.status == "failed"
+    meta = json.loads((dest / "meta.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "failed"
+    assert meta["error"] == "internal"
+    assert meta["stage"] == "check"
+    assert not (dest / "report.json").exists()
+    assert any(
+        r.__dict__.get("event") == "pipeline_fail"
+        and r.__dict__.get("error_code") == "internal"
+        and r.__dict__.get("stage") == "check"
+        and r.__dict__.get("exc_type") == "RuntimeError"
+        for r in caplog.records
+    )
+    assert stage_var.get() is None
+    assert audit_id_var.get() is None
+
+
 def test_catalog_closed_after_run(tmp_path: Path, dest: Path) -> None:
     source = _book(tmp_path / "m.xlsx")
     pipe = Pipeline(chat=None, embed=None, slots=GrantSlots())

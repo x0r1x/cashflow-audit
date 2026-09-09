@@ -144,6 +144,18 @@ class Pipeline:
         except PortError:
             _pipeline_fail("port_error", self._stage)
             return _fail(dest_dir, owner, "port_error", self._stage, self.slots)
+        except Exception as exc:
+            log_event(
+                _LOGGER,
+                logging.ERROR,
+                "pipeline_fail",
+                "pipeline failed",
+                error_code="internal",
+                stage=self._stage,
+                exc_type=type(exc).__name__,
+                exc_info=True,
+            )
+            return _fail(dest_dir, owner, "internal", self._stage, self.slots)
         finally:
             try:
                 if self.catalog is not None:

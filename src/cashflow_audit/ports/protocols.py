@@ -58,7 +58,9 @@ class JobBus(Protocol):
 
     async def get_live(self, audit_id: str) -> JobState | None: ...
 
-    async def mark_queued(self, audit_id: str, actor_id: str) -> None: ...
+    async def mark_queued(
+        self, audit_id: str, actor_id: str, *, replace_terminal: bool = False
+    ) -> None: ...
 
     async def set_terminal(
         self,

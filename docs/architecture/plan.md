@@ -61,6 +61,8 @@ EMBEDDING_BASE_URL=…/v1  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY опцион�
 | свой каталог без отчёта | `202`, `XADD` если нет pending | один раз |
 | пусто | каталог + `XADD` | да |
 
+Повторный POST не перетирает терминальный HASH (`succeeded`/`degraded`/`needs_input`), даже если гонка прошла check до появления `report.json`. `mark_queued(..., replace_terminal=True)` только у HITL и reconcile. `failed` без report — retry.
+
 GET/answers: `owner.json.actor_id` должен совпасть, иначе `403`. `owner.json` пишется на POST и **не** стирается HITL (в отличие от терминального `meta.json`). Глоссарий HITL — `data/glossary/{actor_id}.json`, не общий файл.
 
 **Стадии** строго подряд. Skip, если артефакт есть (tmp + rename). `force` нет.
@@ -84,7 +86,7 @@ Worker **всегда** `Pipeline.run` с parse. HITL не передаёт `res
 
 **Дедлайн прогона:** `JOB_TIMEOUT_SEC` (default 3600). Превышение → `failed` `error=timeout`, слоты отпустить.
 
-**Retention:** `AUDIT_TTL_DAYS` (default 14). При старте и раз в сутки удалять каталоги старше TTL, кроме `running`. Не копить PVC бесконечно.
+**Retention:** `AUDIT_TTL_DAYS` (default 14). При старте и раз в сутки удалять каталоги старше TTL, кроме live `running` и `queued`. Не копить PVC бесконечно.
 
 **CLI:** тот же skip по диску, Redis не нужен; `actor_id=anonymous`.
 
@@ -167,7 +169,7 @@ CLI ─────────────────────────�
 
 Терминальный `status` (один, не флаги):
 
-`failed` > `needs_input` (questions непусты) > `degraded` (порты молчали, questions пусто) > `succeeded`
+`failed` > `needs_input` (questions непусты) > `degraded` (LLM не ответил при eligible-находках, questions пусто) > `succeeded`
 
 Live: `queued` | `running`. Нет `/findings`.
 
@@ -300,7 +302,7 @@ Label column — левая видимая строковая в блоке (ski
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | I1, I3a, I3b | IdentityResolver; нет concept → Question |
 
-IdentityResolver: один total (не сумма с детьми); период с оси layout; check-row кросс-проверка I1, не второй finding. Сигналы FCF/DSCR выкл.
+IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период с оси layout: только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. Сигналы FCF/DSCR выкл.
 
 Дедуп `(detector, frozenset(cell_refs))`.
 
@@ -322,6 +324,8 @@ class Candidate(BaseModel):
 ChatPort под `try_slot("llm")`. Шаблон всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только title/evidence/recommendation/need_user_input; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа impact. `related_ids` — общий downstream.
 
 Drop находки без ref ∈ IR.
+
+Нет eligible-находок (после drop / top-N пуст) → LLM не зовём → не `degraded`, даже если ChatPort задан.
 
 `questions` = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)`.
 

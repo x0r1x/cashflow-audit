@@ -47,6 +47,31 @@ def test_execute_pipeline_exception_logs_internal(
     live = asyncio.run(bus.get_live("deadbeef"))
     assert live is not None
     assert live.error == "internal"
+    assert live.status == "failed"
+    assert live.stage == "parse"
+
+
+def test_execute_pipeline_exception_prefers_meta_stage(
+    tmp_path: Path, caplog, monkeypatch
+) -> None:
+    bus = MemoryJobBus()
+    ctx = AppContext(store=DiskStore(tmp_path / "data"), bus=bus)
+    dest = ctx.store.dest_dir("deadbeef")
+    dest.mkdir(parents=True)
+    write_json(dest / "owner.json", {"actor_id": "u1"})
+    write_json(dest / "meta.json", {"status": "failed", "stage": "layout", "error": "internal"})
+
+    def _boom(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("cashflow_audit.api.workers.Pipeline.run", _boom)
+    caplog.set_level(logging.INFO, logger="cashflow_audit")
+    asyncio.run(_execute(Job(audit_id="deadbeef"), ctx))
+    live = asyncio.run(bus.get_live("deadbeef"))
+    assert live is not None
+    assert live.status == "failed"
+    assert live.error == "internal"
+    assert live.stage == "layout"
 
 
 def test_wait_slot_timeout_logs(caplog) -> None:

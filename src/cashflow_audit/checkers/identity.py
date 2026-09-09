@@ -9,27 +9,46 @@ from cashflow_audit.parse.a1 import format_addr
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
 I3A_CONCEPTS = ("bs.cash", "cf.cfo")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
+_IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 
 
 def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQuestion]]:
     candidates: list[Candidate] = []
     questions: list[MappingQuestion] = []
     qn = 1
-    by_concept = _one_total(ctx)
-    qn = _maybe_question(questions, qn, "I1", I1_CONCEPTS, by_concept, ctx)
-    assets, equity, liab = (by_concept.get(c) for c in I1_CONCEPTS)
-    if assets and equity and liab:
-        candidates.extend(_i1(ctx, assets, equity, liab))
-    qn = _maybe_question(questions, qn, "I3a", I3A_CONCEPTS, by_concept, ctx)
-    cash, cfo = (by_concept.get(c) for c in I3A_CONCEPTS)
-    if cash and cfo:
-        candidates.extend(_rollforward(ctx, "identity.I3a", cash, [cfo], add=True))
-    qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, by_concept, ctx)
-    retained, ni = (by_concept.get(c) for c in I3B_CONCEPTS)
-    div = by_concept.get("cf.dividends")
-    if retained and ni:
-        candidates.extend(_i3b(ctx, retained, ni, div))
+    by_block = _totals_by_block(ctx)
+    book = _one_total(ctx)
+    qn = _maybe_question(questions, qn, "I1", I1_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I1_CONCEPTS):
+        candidates.extend(
+            _i1(ctx, group["bs.assets_total"], group["bs.equity"], group["bs.liabilities"])
+        )
+    qn = _maybe_question(questions, qn, "I3a", I3A_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I3A_CONCEPTS):
+        candidates.extend(
+            _rollforward(ctx, "identity.I3a", group["bs.cash"], [group["cf.cfo"]], add=True)
+        )
+    qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I3B_CONCEPTS):
+        div = group.get("cf.dividends") or book.get("cf.dividends")
+        candidates.extend(_i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div))
     return candidates, questions
+
+
+def _pick_total(chosen: dict[str, MappedRow], row: MappedRow) -> None:
+    prev = chosen.get(row.concept_id or "")
+    if prev is None or (row.article_role == "output" and prev.article_role != "output"):
+        if row.concept_id:
+            chosen[row.concept_id] = row
+
+
+def _totals_by_block(ctx: CheckContext) -> dict[str, dict[str, MappedRow]]:
+    chosen: dict[str, dict[str, MappedRow]] = {}
+    for row in ctx.mapping.rows:
+        if not row.concept_id:
+            continue
+        _pick_total(chosen.setdefault(row.block_id, {}), row)
+    return chosen
 
 
 def _one_total(ctx: CheckContext) -> dict[str, MappedRow]:
@@ -37,10 +56,21 @@ def _one_total(ctx: CheckContext) -> dict[str, MappedRow]:
     for row in ctx.mapping.rows:
         if not row.concept_id:
             continue
-        prev = chosen.get(row.concept_id)
-        if prev is None or (row.article_role == "output" and prev.article_role != "output"):
-            chosen[row.concept_id] = row
+        _pick_total(chosen, row)
     return chosen
+
+
+def _groups(
+    by_block: dict[str, dict[str, MappedRow]],
+    book: dict[str, MappedRow],
+    needed: tuple[str, ...],
+) -> list[dict[str, MappedRow]]:
+    found = [bucket for bucket in by_block.values() if all(cid in bucket for cid in needed)]
+    if found:
+        return found
+    if all(cid in book for cid in needed):
+        return [book]
+    return []
 
 
 def _maybe_question(
@@ -99,7 +129,6 @@ def _i1(
                 base_severity="error",
             )
         )
-        break
     return found
 
 
@@ -138,7 +167,6 @@ def _rollforward(
                 base_severity="error",
             )
         )
-        break
     return found
 
 
@@ -169,7 +197,6 @@ def _i3b(
                 base_severity="error",
             )
         )
-        break
     return found
 
 
@@ -178,10 +205,11 @@ def _period_cols(ctx: CheckContext, *rows: MappedRow) -> list[int]:
     wanted = {(r.sheet, r.block_id) for r in rows}
     for sheet in ctx.layout.sheets:
         for block in sheet.blocks:
-            if (sheet.name, block.block_id) in wanted or any(
-                r.sheet == sheet.name for r in rows
-            ):
-                cols.update(h.col for h in block.axis.headers)
+            if (sheet.name, block.block_id) not in wanted:
+                continue
+            cols.update(
+                h.col for h in block.axis.headers if h.role in _IDENTITY_PERIOD_ROLES
+            )
     return sorted(cols)
 
 
