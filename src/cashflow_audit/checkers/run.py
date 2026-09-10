@@ -15,6 +15,7 @@ from cashflow_audit.checkers.detectors import (
 )
 from cashflow_audit.checkers.identity import detect_identities
 from cashflow_audit.checkers.models import Candidate, CheckDocument
+from cashflow_audit.checkers.risks import detect_risks
 
 FREEZE_TAGS = {"likely_intentional", "edge_period", "hist_manual_adjustment"}
 
@@ -33,6 +34,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_hidden_input(ctx))
     identity, questions = detect_identities(ctx)
     candidates.extend(identity)
+    candidates.extend(detect_risks(ctx))
     candidates = _dedup(candidates)
     for cand in candidates:
         if FREEZE_TAGS.intersection(cand.tags) and cand.base_severity == "error":
