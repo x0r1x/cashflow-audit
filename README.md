@@ -4,98 +4,17 @@
 [![Python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![uv](https://img.shields.io/badge/packaging-uv-de5fe9.svg)](https://docs.astral.sh/uv/)
 
-Аудит Excel-моделей CashFlow. Книга на диске не меняется.
+Сервис **проверяет** готовую Excel-модель CashFlow и пишет JSON-отчёт: ячейка, в чём расхождение, на что влияет, что посмотреть. **Файл модели не меняется.**
 
-Детектор — код. LLM не разбирает Excel и не ищет ошибки: только неоднозначный маппинг статей и текст карточки. Находка без ссылок на ячейки IR в отчёт не попадает.
+Проверки делает код (формулы, периоды, сходимость баланса и кассы). Языковая модель не разбирает Excel и не ищет ошибки: только подпись неоднозначных строк и текст карточки.
+
+Полное описание простым языком: **[Как работает сервис](docs/guide.md)**.
 
 ```mermaid
 flowchart LR
   xlsx["xlsx / xlsm"] --> parse --> compile --> layout --> series
   series --> mapping --> check --> lineage --> report["report.json"]
 ```
-
-## Зачем
-
-Обычные инструменты помогают *собрать* модель. Этот сервис *проверяет* уже готовую: граф формул, оси периодов, сходимость баланса и кэша, скрытые входы, константы в формулах.
-
-LLM и embeddings — **два разных** внешних HTTP-сервиса (OpenAI-compatible), не в поде. Если их нет, прогон всё равно заканчивается: шаблоны карточек и глоссарий HITL, статус `degraded` или `needs_input`.
-
-## Вход
-
-| Что | Как | Обязательно |
-|---|---|---|
-| Книга | `.xlsx` / `.xlsm` — путь в CLI или multipart-поле `file` | да |
-| Пользователь | HTTP: заголовок `X-Actor-Id`. CLI: `anonymous` | да для HTTP |
-| Ответы HITL | `POST .../answers` с `{ question_id, concept_id }` | нет, только если в отчёте есть `questions` |
-| LLM и embeddings | переменные `LLM_*` и отдельно `EMBEDDING_*` | нет |
-
-Не принимаем `.xls`, `.xlsb`, пароль, URL внешней книги, правки ячеек. Потолок тела ≈ 250 МиБ.
-
-`audit_id` = sha256(`actor_id` + `:` + sha256 файла). Один пользователь и те же байты — тот же id. Разные пользователи с одним файлом — разные аудиты.
-
-## Выход
-
-Снаружи два объекта. Parquet, mapping и lineage по HTTP не отдаём.
-
-1. **Статус задания** — `queued`, `running`, `succeeded`, `needs_input`, `degraded`, `failed`.
-2. **Отчёт** `report.json` — когда файл уже на диске.
-
-В отчёте: `findings` (ячейка, доказательство, метрики, влияние, рекомендация) и `questions`. Рекомендация не предлагает править книгу. Поле `sha256` — хеш содержимого файла, не `audit_id`.
-
-CLI пишет отчёт в `-o`. HTTP: сначала статус, потом `GET .../report`.
-
-## Как это работает
-
-```mermaid
-sequenceDiagram
-  actor User as Пользователь
-  participant API
-  participant Redis
-  participant Worker as Воркер
-  participant Disk as Диск
-  participant LLM as LLM HTTP
-  participant Emb as Embed HTTP
-
-  User->>API: POST /v1/audits, xlsx, X-Actor-Id
-  API->>Disk: source.xlsx, owner.json
-  API->>Redis: очередь audit_id
-  API-->>User: 202, queued
-
-  loop опрос 1–2 с
-    User->>API: GET /v1/audits/{id}
-    API-->>User: queued / running, Retry-After: 2
-  end
-
-  Redis->>Worker: claim
-  Worker->>Disk: parse … lineage
-  opt неоднозначный mapping или текст карточки
-    Worker->>Emb: только лейблы
-    Worker->>LLM: лейблы и шаблоны, без cached_value
-  end
-  Worker->>Disk: report.json, meta.json
-  User->>API: GET /v1/audits/{id}/report
-  API-->>User: 200, findings и questions
-
-  opt needs_input
-    User->>API: POST /v1/audits/{id}/answers
-    API->>Disk: glossary += ответы, стереть хвост mapping…meta
-    API->>Redis: снова в очередь, skip остановится на mapping
-  end
-```
-
-Повторный `POST` того же файла тем же пользователем после готового отчёта — сразу `200` и `report_url`, без очереди и без LLM.
-
-CLI вызывает тот же `Pipeline.run` без Redis: файл → `report.json`.
-
-## Возможности
-
-| | |
-|---|---|
-| Детекторы | Ошибки Excel, маскировка `IFERROR`, циклы, смена формулы по периодам, тождества I1/I3, скрытые входы |
-| Цитаты | У каждой находки ячейки IR вида `Лист!A1` |
-| Идемпотентность | Тот же актор и те же байты — тот же `audit_id`; готовые стадии пропускаются |
-| Изоляция | `X-Actor-Id` разделяет аудиты и глоссарии; в HTTP нет `anonymous` |
-| Книга | Только чтение |
 
 ## Быстрый старт
 
@@ -107,22 +26,34 @@ cp .env.example .env          # по желанию: URL моделей; клю�
 uv run cashflow-audit audit ./model.xlsx -o ./report.json
 ```
 
-## Использование
+Повтор того же файла тем же человеком пропускает готовые стадии и не вызывает LLM, если уже есть `mapping.json` или `report.json`.
 
-### CLI
+## Что на входе и на выходе
+
+| Вход | Как |
+|---|---|
+| Книга | `.xlsx` / `.xlsm` (не `.xls` / `.xlsb`, не пароль) |
+| Кто вы | HTTP: заголовок `X-Actor-Id`. CLI: `anonymous` |
+| Модели | Необязательно. Нет LLM — отчёт шаблонный |
+
+Снаружи два объекта: **статус задания** и **отчёт** (`findings` + `questions`). Промежуточные parquet по HTTP не отдаём. Рекомендация в карточке не предлагает править книгу.
+
+`audit_id` = sha256(кто вы + «:» + sha256 файла). Разные люди с одним файлом — разные аудиты.
+
+Статусы: `queued` → `running` → `succeeded` / `needs_input` / `degraded` / `failed`. Если находок не было, живой LLM не делает отчёт `degraded`.
+
+## CLI
 
 ```bash
 uv run cashflow-audit audit ./model.xlsx -o ./report.json --data-dir ./data
-uv run cashflow-audit ping   # Redis (если задан), GET /models + id, POST ping
+uv run cashflow-audit ping   # Redis (если задан) и порты моделей
 ```
 
-Актор — `anonymous`. Артефакты: `data/audits/{audit_id}/`. Повтор того же файла пропускает готовые стадии и не вызывает LLM, если уже есть `mapping.json` или `report.json`.
+Артефакты: `data/audits/{audit_id}/`. Логи — JSON в stdout (`LOG_JSON`, `LOG_LEVEL`).
 
-Логи: JSON в stdout (`LOG_JSON=true` по умолчанию в `.env.example`), уровень — `LOG_LEVEL` (`INFO`).
+## HTTP
 
-### HTTP
-
-Нужен Redis. Без `X-Actor-Id` ответ `400 missing_actor`.
+Нужен Redis. Без `X-Actor-Id` — `400 missing_actor`.
 
 ```bash
 uv run cashflow-audit serve --host 127.0.0.1 --port 8080
@@ -132,14 +63,14 @@ uv run cashflow-audit serve --host 127.0.0.1 --port 8080
 POST /v1/audits                    # multipart, поле file
 GET  /v1/audits/{id}               # опрос; Retry-After: 2 пока queued/running
 GET  /v1/audits/{id}/report
-POST /v1/audits/{id}/answers       # HITL, затем снова очередь с mapping
+POST /v1/audits/{id}/answers       # ответы на questions, затем снова очередь
 GET  /healthz
 GET  /readyz
 ```
 
-Тела запросов и коды: [`docs/architecture/api.md`](docs/architecture/api.md).
+Тела и коды: [`docs/architecture/api.md`](docs/architecture/api.md).
 
-Проверка всех роутов скриптами (`curl` + `python3`). Сервис уже должен слушать порт.
+Проверка маршрутов (`curl` + `python3`), сервис уже слушает порт:
 
 ```bash
 # терминал 1
@@ -149,32 +80,13 @@ GET  /readyz
 bash scripts/probe/run.sh
 ```
 
-`run.sh` вызывает:
+Подробности: [`scripts/probe/README.md`](scripts/probe/README.md).
 
-| Метод | Путь |
-|---|---|
-| GET | `/healthz` |
-| GET | `/readyz` |
-| POST | `/v1/audits` — `sample_full_model.xlsx` |
-| GET | `/v1/audits/{id}` — пока не терминальный статус |
-| GET | `/v1/audits/{id}/report` |
-| POST | `/v1/audits/{id}/answers` — первый option каждой `question` |
+## Docker
 
-Ответы: `scripts/probe-out/YYYYMMDD-HHMMSS/` (gitignore). Если questions пусты, answers даёт `409` — маршрут всё равно вызван. После `202` скрипт снова ждёт статус и качает отчёт.
+В образе нет весов моделей. Redis — sidecar, LLM и embeddings — с хоста.
 
-```bash
-bash scripts/probe/health.sh    # только /healthz и /readyz
-bash scripts/probe/audit.sh     # POST audits → report → answers
-BASE_URL=http://127.0.0.1:8080 PROBE_TIMEOUT_SEC=600 bash scripts/probe/run.sh
-```
-
-Подробности, переменные и разбор ошибок: [`scripts/probe/README.md`](scripts/probe/README.md).
-
-### Docker
-
-В образе нет весов моделей. Redis — sidecar, LLM и embeddings — с хоста через env.
-
-Порты моделей — OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`), не native `/api/v1/chat`. В `.env` для compose:
+Порты моделей — OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`). В `.env` для compose:
 
 ```bash
 LLM_BASE_URL=http://host.docker.internal:1234/v1
@@ -183,28 +95,26 @@ EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
 EMBEDDING_MODEL=text-embedding-qwen3-embedding-0.6b
 ```
 
-В контейнере `127.0.0.1`/`localhost` сами переписываются в `host.docker.internal`; путь `/api/v1` — в OpenAI `/v1`. Ключ можно оставить пустым. `EMBEDDING_MODEL` должен совпасть с `id` из `GET /v1/models`.
+В контейнере `127.0.0.1`/`localhost` переписываются в `host.docker.internal`. Ключ можно оставить пустым.
 
 ```bash
 cp .env.example .env
 docker compose up --build
 ```
 
-В сети compose `REDIS_URL` равен `redis://redis:6379/0`. Данные аудитов — том `/data`.
+В сети compose `REDIS_URL=redis://redis:6379/0`. Данные аудитов — том `/data`.
 
 ## Конфигурация
 
-Скопируйте [`.env.example`](.env.example) в `.env` (файл в gitignore). Читает [`src/cashflow_audit/settings.py`](src/cashflow_audit/settings.py).
+Скопируйте [`.env.example`](.env.example) в `.env`. Читает [`src/cashflow_audit/settings.py`](src/cashflow_audit/settings.py).
 
-| Слой | Примеры | Где хранится |
+| Слой | Примеры | Где |
 |---|---|---|
-| Секреты и URL моделей | `REDIS_URL`, `LLM_*`, `EMBEDDING_*` | env / `.env` |
-| Кнопки процесса | `DATA_DIR`, слоты, TTL, бюджеты | тот же Settings, дефолты в коде |
-| Правила аудита | cosine, zip, CSR, `taxonomy.yaml` | исходники, не env |
+| Секреты и URL | `REDIS_URL`, `LLM_*`, `EMBEDDING_*` | env / `.env` |
+| Процесс | `DATA_DIR`, слоты, TTL, бюджеты | Settings, дефолты в коде |
+| Правила аудита | пороги, `taxonomy.yaml` | исходники, не env |
 
-`LLM_BASE_URL` и `EMBEDDING_BASE_URL` независимы: эмбедер не подставляет URL чата.
-
-Для `serve` нужен `REDIS_URL`. Без `LLM_BASE_URL` / `EMBEDDING_BASE_URL` сервис поднимается, порты просто молчат. Ключ API не обязателен.
+`LLM_*` и `EMBEDDING_*` независимы. Для `serve` нужен `REDIS_URL`. Без URL моделей сервис поднимается, карточки шаблонные.
 
 ## Тесты
 
@@ -215,6 +125,8 @@ uv run ruff check src tests
 
 ## Документация
 
+- **[Как работает сервис](docs/guide.md)** — для человека без контекста
+- [Оглавление docs/](docs/README.md)
 - [Требования](docs/требования.md)
 - [Архитектура](docs/architecture/plan.md)
 - [HTTP API](docs/architecture/api.md)
