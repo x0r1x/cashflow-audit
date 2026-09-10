@@ -1,5 +1,7 @@
 # Архитектура сервиса аудита Excel CashFlow-моделей
 
+Смысл для человека без контекста: [`docs/guide.md`](../guide.md). Ниже — спецификация стадий и инвариантов.
+
 | Поле | Значение |
 |---|---|
 | Статус | Draft |
@@ -300,9 +302,12 @@ Label column — левая видимая строковая в блоке (ski
 | `agg_range_gap` | SUM vs статьи блока |
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
-| I1, I3a, I3b | IdentityResolver; нет concept → Question |
+| I1, I3a, I3b, I5, I7 | IdentityResolver; нет concept → Question |
+| `risk.*` | ряд mapped concept по оси периода; не ошибка модели |
 
-IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период с оси layout: только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. Сигналы FCF/DSCR выкл.
+IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период с оси layout: только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding.
+
+Сигналы риска (`risk.*`, severity `risk`): падение выручки/EBITDA г/г (10%), маржа −5 п.п., отрицательная EBITDA/NI ≥ 2 периода, CFO < 0, касса < 0, рост долг/EBITDA ≥ 1.0x (не net debt), ICR = EBIT/|interest| < 1.5, прогнозный рост выручки выше истории на 15 п.п., дивиденды > CFO. Нет concept — молчание, не Question. FCF и DSCR не считаем, пока нет `cf.fcf` / строки DSCR в онтологии.
 
 Дедуп `(detector, frozenset(cell_refs))`.
 

@@ -9,6 +9,8 @@ from cashflow_audit.parse.a1 import format_addr
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
 I3A_CONCEPTS = ("bs.cash", "cf.cfo")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
+I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
+I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 
 
@@ -32,6 +34,28 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
         candidates.extend(_i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div))
+    qn = _maybe_question(questions, qn, "I5", I5_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I5_CONCEPTS):
+        candidates.extend(
+            _minus(
+                ctx,
+                "identity.I5",
+                group["pnl.gross_profit"],
+                group["pnl.revenue"],
+                group["pnl.cogs"],
+            )
+        )
+    qn = _maybe_question(questions, qn, "I7", I7_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I7_CONCEPTS):
+        candidates.extend(
+            _minus(
+                ctx,
+                "identity.I7",
+                group["pnl.ebit"],
+                group["pnl.ebitda"],
+                group["pnl.da"],
+            )
+        )
     return candidates, questions
 
 
@@ -124,6 +148,39 @@ def _i1(
                     _cell_ref(assets, col),
                     _cell_ref(equity, col),
                     _cell_ref(liab, col),
+                ],
+                payload={"delta": delta, "col": col},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _minus(
+    ctx: CheckContext,
+    detector: str,
+    result: MappedRow,
+    left: MappedRow,
+    right: MappedRow,
+) -> list[Candidate]:
+    found: list[Candidate] = []
+    for col in _period_cols(ctx, result, left, right):
+        got = _value(ctx, result, col)
+        lhs = _value(ctx, left, col)
+        rhs = _value(ctx, right, col)
+        if got is None or lhs is None or rhs is None:
+            continue
+        delta = got - (lhs - rhs)
+        thresh = max(1.0, 0.001 * max(abs(got), abs(lhs)))
+        if abs(delta) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector=detector,
+                cell_refs=[
+                    _cell_ref(result, col),
+                    _cell_ref(left, col),
+                    _cell_ref(right, col),
                 ],
                 payload={"delta": delta, "col": col},
                 base_severity="error",

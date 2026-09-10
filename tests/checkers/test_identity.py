@@ -315,3 +315,212 @@ def test_i1_ignores_scenario_columns() -> None:
         )
     )
     assert not [c for c in result.candidates if c.detector == "identity.I1"]
+
+
+def test_i5_gross_profit_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=4, label="Gross profit"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 4, "Gross profit", "pnl.gross_profit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B4", "50"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I5"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert found[0].payload["delta"] == -10.0
+    assert found[0].cell_refs == ["P&L!B4", "P&L!B2", "P&L!B3"]
+
+
+def test_i5_balanced_is_negative() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=4, label="Gross profit"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 4, "Gross profit", "pnl.gross_profit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B4", "60"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I5"]
+
+
+def test_i5_without_cogs_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=4, label="Gross profit"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 4, "Gross profit", "pnl.gross_profit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "100"), cell("P&L", "B4", "60")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I5"]
+    assert any("I5" in (q.prompt or "") for q in result.questions)
+
+
+def test_i5_reports_every_broken_period() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=4, label="Gross profit"),
+        ],
+        axis=headers(
+            (2, "2023", "historical"),
+            (3, "2024E", "forecast"),
+            (4, "2025E", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 4, "Gross profit", "pnl.gross_profit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B4", "60"),
+                cell("P&L", "C2", "100"),
+                cell("P&L", "C3", "40"),
+                cell("P&L", "C4", "50"),
+                cell("P&L", "D2", "200"),
+                cell("P&L", "D3", "80"),
+                cell("P&L", "D4", "90"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    cols = {c.payload["col"] for c in result.candidates if c.detector == "identity.I5"}
+    assert cols == {3, 4}
+
+
+def test_i7_ebit_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="EBITDA"),
+            LayoutRow(row=3, label="D&A"),
+            LayoutRow(row=4, label="EBIT"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "D&A", "pnl.da", role="calculation"),
+            mapped("P&L", 4, "EBIT", "pnl.ebit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "50"),
+                cell("P&L", "B3", "10"),
+                cell("P&L", "B4", "30"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I7"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert found[0].payload["delta"] == -10.0
+
+
+def test_i7_balanced_is_negative() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="EBITDA"),
+            LayoutRow(row=3, label="D&A"),
+            LayoutRow(row=4, label="EBIT"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "D&A", "pnl.da", role="calculation"),
+            mapped("P&L", 4, "EBIT", "pnl.ebit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "50"),
+                cell("P&L", "B3", "10"),
+                cell("P&L", "B4", "40"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I7"]
+
+
+def test_i7_without_da_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=4, label="EBIT")]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 4, "EBIT", "pnl.ebit", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "50"), cell("P&L", "B4", "40")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I7"]
+    assert any("I7" in (q.prompt or "") for q in result.questions)
