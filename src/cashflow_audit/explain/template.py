@@ -35,10 +35,14 @@ _TITLES = {
 }
 
 
+def card_title(detector: str) -> str:
+    return _TITLES.get(detector, f"Находка {detector}")
+
+
 def template_card(candidate: Candidate, lineage: LineageItem) -> ExplainCard:
     refs = ", ".join(candidate.cell_refs) or "—"
     metrics = ", ".join(lineage.affected_metrics) or "—"
-    title = _TITLES.get(candidate.detector, f"Находка {candidate.detector}")
+    title = card_title(candidate.detector)
     evidence = f"Детектор {candidate.detector}; ячейки {refs}; метрики {metrics}."
     recommendation = "Проверить указанные ячейки. Файл не изменён."
     return ExplainCard(title=title, evidence=evidence, recommendation=recommendation)
