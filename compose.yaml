@@ -1,7 +1,7 @@
 # Redis is the only sidecar. LLM and embeddings stay outside the pod:
 # copy .env.example → .env (or export) LLM_* and EMBEDDING_* separately.
-# OpenAI-compatible only: LLM_BASE_URL / EMBEDDING_BASE_URL must include /v1
-# (…/v1/chat/completions, …/v1/embeddings, …/v1/models). Native /api/v1/chat is not used.
+# OpenAI-compatible JSON. BASE_URL is the prefix as written (empty path gets /v1).
+# Optional LLM_CHAT_PATH / EMBEDDING_PATH (defaults /chat/completions, /embeddings).
 # Compose interpolates host .env; REDIS_URL inside the network is the sidecar.
 # From the app container, models on the host are host.docker.internal, not 127.0.0.1.
 services:
@@ -29,10 +29,12 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-qwen3.6-27b-fp8}
       LLM_TLS_CA_FILE: ${LLM_TLS_CA_FILE:-}
+      LLM_CHAT_PATH: ${LLM_CHAT_PATH:-}
       EMBEDDING_BASE_URL: ${EMBEDDING_BASE_URL:-}
       EMBEDDING_API_KEY: ${EMBEDDING_API_KEY:-}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-}
       EMBEDDING_TLS_CA_FILE: ${EMBEDDING_TLS_CA_FILE:-}
+      EMBEDDING_PATH: ${EMBEDDING_PATH:-}
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-4}
       MAX_INFLIGHT: ${MAX_INFLIGHT:-4}
       MAX_LLM_INFLIGHT: ${MAX_LLM_INFLIGHT:-1}

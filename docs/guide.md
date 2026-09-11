@@ -186,7 +186,7 @@ Zip Excel разбирается как OOXML. Макросы не исполн�
 
 ```bash
 uv sync
-cp .env.example .env          # URL моделей по желанию; HTTPS со своим CA — LLM_TLS_CA_FILE / EMBEDDING_TLS_CA_FILE
+cp .env.example .env          # URL моделей по желанию; пути chat/embed — LLM_CHAT_PATH / EMBEDDING_PATH; HTTPS со своим CA — LLM_TLS_CA_FILE / EMBEDDING_TLS_CA_FILE
 uv run cashflow-audit audit ./model.xlsx -o ./report.json
 ```
 

@@ -25,7 +25,7 @@ def _loopback_rewrite_host() -> str | None:
 def normalize_openai_base_url(url: str, *, rewrite_loopback_to: str | None = None) -> str:
     parts = urlsplit(url.strip())
     path = parts.path.rstrip("/")
-    if path in {"", "/api/v1"}:
+    if path == "":
         path = "/v1"
     netloc = parts.netloc
     host = parts.hostname
@@ -57,11 +57,13 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_model: str = "qwen3.6-27b-fp8"
     llm_tls_ca_file: Path | None = None
+    llm_chat_path: str = "/chat/completions"
 
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
     embedding_model: str | None = None
     embedding_tls_ca_file: Path | None = None
+    embedding_path: str = "/embeddings"
 
     worker_concurrency: int = 4
     max_inflight: int | None = None
@@ -98,6 +100,20 @@ class Settings(BaseSettings):
             return None
         return normalize_openai_base_url(value, rewrite_loopback_to=_loopback_rewrite_host())
 
+    @field_validator("llm_chat_path", mode="before")
+    @classmethod
+    def default_chat_path(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "/chat/completions"
+        return value.strip() if isinstance(value, str) else value
+
+    @field_validator("embedding_path", mode="before")
+    @classmethod
+    def default_embed_path(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "/embeddings"
+        return value.strip() if isinstance(value, str) else value
+
     @property
     def inflight(self) -> int:
         return self.max_inflight if self.max_inflight is not None else self.worker_concurrency
@@ -124,6 +140,7 @@ class Settings(BaseSettings):
                 api_key=self.llm_api_key,
                 model=self.llm_model,
                 ca_file=self.llm_tls_ca_file,
+                chat_path=self.llm_chat_path,
             )
         except PortError:
             return None
@@ -139,6 +156,7 @@ class Settings(BaseSettings):
                 api_key=self.embedding_api_key,
                 model=self.embedding_model,
                 ca_file=self.embedding_tls_ca_file,
+                embed_path=self.embedding_path,
             )
         except PortError:
             return None

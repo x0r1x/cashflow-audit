@@ -7,7 +7,8 @@ from pathlib import Path
 import httpx
 from pydantic import BaseModel
 
-from cashflow_audit.adapters.tls import httpx_verify, log_host
+from cashflow_audit.adapters.routes import CHAT_SUFFIX, openai_path, wrap_sync_transport
+from cashflow_audit.adapters.tls import log_host
 from cashflow_audit.errors import PortError
 from cashflow_audit.observability import log_event
 
@@ -25,23 +26,31 @@ class OpenAIChat:
         api_key: str | None,
         model: str,
         ca_file: Path | None = None,
+        chat_path: str = CHAT_SUFFIX,
     ) -> None:
         from openai import OpenAI
 
         try:
-            verify = httpx_verify(ca_file)
+            dest = openai_path(chat_path, CHAT_SUFFIX)
+            transport = wrap_sync_transport(
+                None,
+                base_url=base_url,
+                ca_file=ca_file,
+                sdk_suffix=CHAT_SUFFIX,
+                dest_path=dest,
+            )
         except PortError as exc:
             log_event(
                 _LOGGER,
                 logging.ERROR,
                 "port_error",
-                "chat tls",
+                "chat tls" if "tls" in str(exc) else "chat path",
                 port="chat",
                 model=model,
                 exc_type=type(exc).__name__,
             )
-            raise PortError("tls ca file missing", port="chat") from exc
-        http = httpx.Client(verify=verify)
+            raise PortError(str(exc), port="chat") from exc
+        http = httpx.Client(transport=transport)
         self._client = OpenAI(
             base_url=base_url, api_key=api_key or _PLACEHOLDER_KEY, http_client=http
         )
@@ -54,6 +63,7 @@ class OpenAIChat:
             port="chat",
             model=model,
             host=log_host(base_url),
+            path=dest,
             tls_ca=ca_file is not None,
         )
 

@@ -343,6 +343,43 @@ def test_ping_embed_503() -> None:
     assert result.error == "http_503"
 
 
+def test_ping_chat_uses_custom_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/openai/chat"
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "ok"}}]},
+        )
+
+    result = asyncio.run(
+        ping_chat(
+            "http://llm/v1",
+            None,
+            "qwen",
+            transport=_transport(handler),
+            chat_path="/openai/chat",
+        )
+    )
+    assert result.ok is True
+
+
+def test_ping_embed_uses_custom_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/custom/embeddings"
+        return httpx.Response(200, json={"data": [{"embedding": [0.1]}]})
+
+    result = asyncio.run(
+        ping_embed(
+            "http://emb/v1",
+            None,
+            "e5",
+            transport=_transport(handler),
+            embed_path="/custom/embeddings",
+        )
+    )
+    assert result.ok is True
+
+
 def test_ping_embed_2xx() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/embeddings")
