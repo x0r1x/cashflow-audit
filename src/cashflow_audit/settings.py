@@ -6,6 +6,7 @@ from urllib.parse import urlsplit, urlunsplit
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from cashflow_audit.errors import PortError
 from cashflow_audit.ports.protocols import ChatPort, EmbedPort
 
 _LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
@@ -55,10 +56,12 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     llm_api_key: str | None = None
     llm_model: str = "qwen3.6-27b-fp8"
+    llm_tls_ca_file: Path | None = None
 
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
     embedding_model: str | None = None
+    embedding_tls_ca_file: Path | None = None
 
     worker_concurrency: int = 4
     max_inflight: int | None = None
@@ -80,6 +83,8 @@ class Settings(BaseSettings):
         "embedding_base_url",
         "embedding_api_key",
         "embedding_model",
+        "llm_tls_ca_file",
+        "embedding_tls_ca_file",
         mode="before",
     )
     @classmethod
@@ -113,19 +118,27 @@ class Settings(BaseSettings):
             return None
         from cashflow_audit.adapters.openai_chat import OpenAIChat
 
-        return OpenAIChat(
-            base_url=self.llm_base_url,
-            api_key=self.llm_api_key,
-            model=self.llm_model,
-        )
+        try:
+            return OpenAIChat(
+                base_url=self.llm_base_url,
+                api_key=self.llm_api_key,
+                model=self.llm_model,
+                ca_file=self.llm_tls_ca_file,
+            )
+        except PortError:
+            return None
 
     def embed(self) -> EmbedPort | None:
         if not self.embed_configured():
             return None
         from cashflow_audit.adapters.openai_embed import OpenAIEmbed
 
-        return OpenAIEmbed(
-            base_url=self.embedding_base_url,
-            api_key=self.embedding_api_key,
-            model=self.embedding_model,
-        )
+        try:
+            return OpenAIEmbed(
+                base_url=self.embedding_base_url,
+                api_key=self.embedding_api_key,
+                model=self.embedding_model,
+                ca_file=self.embedding_tls_ca_file,
+            )
+        except PortError:
+            return None

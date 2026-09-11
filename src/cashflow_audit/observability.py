@@ -53,6 +53,8 @@ _ALLOWED_EXTRA = frozenset(
         "http_code",
         "exc_type",
         "audit_id",
+        "host",
+        "tls_ca",
     }
 )
 

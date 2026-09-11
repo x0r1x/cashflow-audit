@@ -15,6 +15,8 @@ def test_defaults_without_env(monkeypatch) -> None:
         "EMBEDDING_BASE_URL",
         "EMBEDDING_API_KEY",
         "EMBEDDING_MODEL",
+        "LLM_TLS_CA_FILE",
+        "EMBEDDING_TLS_CA_FILE",
         "WORKER_CONCURRENCY",
         "MAX_INFLIGHT",
         "JOB_TIMEOUT_SEC",
@@ -37,6 +39,8 @@ def test_defaults_without_env(monkeypatch) -> None:
     assert settings.log_json is True
     assert settings.chat() is None
     assert settings.embed() is None
+    assert settings.llm_tls_ca_file is None
+    assert settings.embedding_tls_ca_file is None
 
 
 def test_reads_process_env(monkeypatch) -> None:
@@ -49,6 +53,16 @@ def test_reads_process_env(monkeypatch) -> None:
     assert settings.worker_concurrency == 8
     assert settings.inflight == 3
     assert settings.data_dir == Path("/tmp/cf")
+
+
+def test_missing_tls_ca_does_not_raise_from_chat_factory(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("LLM_TLS_CA_FILE", str(tmp_path / "missing.pem"))
+    settings = Settings(_env_file=None)
+    assert settings.llm_configured() is True
+    assert settings.chat() is None
 
 
 def test_llm_url_without_key_is_configured(monkeypatch) -> None:
