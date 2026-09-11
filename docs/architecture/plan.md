@@ -22,9 +22,10 @@
 
 ```
 REDIS_URL=redis://127.0.0.1:6379/0
-LLM_BASE_URL=…/v1  LLM_MODEL=…  [LLM_API_KEY опционален]
-EMBEDDING_BASE_URL=…/v1  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY опционален]
+LLM_BASE_URL=…/v1  LLM_MODEL=…  [LLM_API_KEY опционален]  [LLM_TLS_CA_FILE=ca.pem]
+EMBEDDING_BASE_URL=…/v1  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY опционален]  [EMBEDDING_TLS_CA_FILE=ca.pem]
 # OpenAI-compatible: {base}/chat/completions, {base}/embeddings, {base}/models
+# HTTPS: публичный CA — ничего; свой PEM — LLM_TLS_CA_FILE / EMBEDDING_TLS_CA_FILE отдельно на каждый порт.
 ```
 
 Нет GPU/весов в репозитории, нет Postgres/SQLite/S3/Polars, нет DuckDB-сервера. Redis только loopback пода. Нет LLM/embeddings — аудит завершается (`degraded` или `needs_input`, шаблоны + глоссарий).

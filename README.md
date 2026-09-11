@@ -97,6 +97,8 @@ EMBEDDING_MODEL=text-embedding-qwen3-embedding-0.6b
 
 В контейнере `127.0.0.1`/`localhost` переписываются в `host.docker.internal`. Ключ можно оставить пустым.
 
+Свой HTTPS CA: `LLM_TLS_CA_FILE` и `EMBEDDING_TLS_CA_FILE` — пути к PEM **внутри контейнера**. Пример volume: `- /etc/ssl/llm-ca.pem:/certs/llm.pem:ro` и `LLM_TLS_CA_FILE=/certs/llm.pem`.
+
 ```bash
 cp .env.example .env
 docker compose up --build
