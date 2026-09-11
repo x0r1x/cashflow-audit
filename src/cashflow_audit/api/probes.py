@@ -12,6 +12,13 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from cashflow_audit.adapters.routes import (
+    CHAT_SUFFIX,
+    EMBED_SUFFIX,
+    join_route,
+    openai_path,
+    wrap_async_transport,
+)
 from cashflow_audit.adapters.tls import httpx_verify
 from cashflow_audit.api.context import AppContext
 from cashflow_audit.errors import PortError
@@ -59,6 +66,15 @@ def _id_matches(mid: str, model: str) -> bool:
     return mid == _EMBED_ID_PREFIX + model or model == _EMBED_ID_PREFIX + mid
 
 
+def _port_error_reason(exc: PortError) -> str:
+    msg = str(exc).lower()
+    if "tls" in msg:
+        return "tls"
+    if "path" in msg:
+        return "path"
+    return "connect"
+
+
 @asynccontextmanager
 async def _openai_client(
     *,
@@ -67,14 +83,31 @@ async def _openai_client(
     timeout: float,
     transport: httpx.BaseTransport | None,
     ca_file: Path | None = None,
+    sdk_suffix: str = "",
+    dest_path: str = "",
 ) -> AsyncIterator[Any]:
     from openai import AsyncOpenAI
 
+    dest = dest_path or sdk_suffix
     try:
-        verify = True if transport is not None else httpx_verify(ca_file)
+        needs_rewrite = bool(sdk_suffix) and openai_path(dest, sdk_suffix) != sdk_suffix
+        if needs_rewrite:
+            wrapped = wrap_async_transport(
+                transport,
+                base_url=base_url,
+                ca_file=ca_file,
+                sdk_suffix=sdk_suffix,
+                dest_path=dest,
+            )
+            http_kwargs: dict[str, Any] = {"timeout": timeout, "transport": wrapped}
+            if transport is not None:
+                http_kwargs["verify"] = True
+            http = httpx.AsyncClient(**http_kwargs)
+        else:
+            verify = True if transport is not None else httpx_verify(ca_file)
+            http = httpx.AsyncClient(timeout=timeout, transport=transport, verify=verify)
     except PortError:
         raise
-    http = httpx.AsyncClient(timeout=timeout, transport=transport, verify=verify)
     client = AsyncOpenAI(
         base_url=base_url,
         api_key=api_key or _PLACEHOLDER_KEY,
@@ -163,14 +196,15 @@ async def probe_models(
             ca_file=ca_file,
         ) as client:
             page = await client.models.list()
-    except PortError:
+    except PortError as exc:
+        reason = _port_error_reason(exc)
         return _emit(
-            ProbeResult(configured=True, reachable=False, model_present=None, error="tls"),
+            ProbeResult(configured=True, reachable=False, model_present=None, error=reason),
             msg=msg,
             port=port,
             model=model,
             http_status=None,
-            reason="tls",
+            reason=reason,
         )
     except Exception as exc:
         from openai import APIResponseValidationError
@@ -266,6 +300,8 @@ async def _sdk_ping(
     transport: httpx.BaseTransport | None,
     call: Callable[[Any], Awaitable[Any]],
     ca_file: Path | None = None,
+    sdk_suffix: str = "",
+    dest_path: str = "",
 ) -> ProbeResult:
     if not base_url:
         return _emit_ping(
@@ -278,7 +314,8 @@ async def _sdk_ping(
             reason="unset",
             latency_ms=None,
         )
-    url = base_url.rstrip("/") + path
+    dest = dest_path or path
+    url = join_route(base_url, dest)
     msg = _safe_target(url)
     started = time.perf_counter()
     latency_ms: int | None = None
@@ -289,22 +326,25 @@ async def _sdk_ping(
             timeout=timeout,
             transport=transport,
             ca_file=ca_file,
+            sdk_suffix=sdk_suffix,
+            dest_path=dest,
         ) as client:
             await call(client)
-    except PortError:
+    except PortError as exc:
+        reason = _port_error_reason(exc)
         return _emit_ping(
             ProbeResult(
                 configured=True,
                 reachable=False,
                 model_present=None,
-                error="tls",
+                error=reason,
             ),
             event=event,
             msg=msg,
             port=port,
             model=model,
             http_status=None,
-            reason="tls",
+            reason=reason,
             latency_ms=None,
         )
     except Exception as exc:
@@ -353,6 +393,7 @@ async def ping_chat(
     timeout: float = 30.0,
     transport: httpx.BaseTransport | None = None,
     ca_file: Path | None = None,
+    chat_path: str = CHAT_SUFFIX,
 ) -> ProbeResult:
     async def _call(client: Any) -> Any:
         return await client.chat.completions.create(
@@ -363,17 +404,33 @@ async def ping_chat(
             tool_choice="none",
         )
 
+    try:
+        dest = openai_path(chat_path, CHAT_SUFFIX)
+    except PortError as exc:
+        reason = _port_error_reason(exc)
+        return _emit_ping(
+            ProbeResult(configured=True, reachable=False, model_present=None, error=reason),
+            event="ping_chat",
+            msg="ping path",
+            port="llm",
+            model=model,
+            http_status=None,
+            reason=reason,
+            latency_ms=None,
+        )
     return await _sdk_ping(
         base_url,
         api_key,
         model,
-        path="/chat/completions",
+        path=dest,
         event="ping_chat",
         port="llm",
         timeout=timeout,
         transport=transport,
         call=_call,
         ca_file=ca_file,
+        sdk_suffix=CHAT_SUFFIX,
+        dest_path=dest,
     )
 
 
@@ -385,21 +442,38 @@ async def ping_embed(
     timeout: float = 10.0,
     transport: httpx.BaseTransport | None = None,
     ca_file: Path | None = None,
+    embed_path: str = EMBED_SUFFIX,
 ) -> ProbeResult:
     async def _call(client: Any) -> Any:
         return await client.embeddings.create(model=model or "", input=["ping"])
 
+    try:
+        dest = openai_path(embed_path, EMBED_SUFFIX)
+    except PortError as exc:
+        reason = _port_error_reason(exc)
+        return _emit_ping(
+            ProbeResult(configured=True, reachable=False, model_present=None, error=reason),
+            event="ping_embed",
+            msg="ping path",
+            port="embed",
+            model=model,
+            http_status=None,
+            reason=reason,
+            latency_ms=None,
+        )
     return await _sdk_ping(
         base_url,
         api_key,
         model,
-        path="/embeddings",
+        path=dest,
         event="ping_embed",
         port="embed",
         timeout=timeout,
         transport=transport,
         call=_call,
         ca_file=ca_file,
+        sdk_suffix=EMBED_SUFFIX,
+        dest_path=dest,
     )
 
 
@@ -484,6 +558,7 @@ async def run_connectivity_checks(
                         settings.llm_api_key,
                         settings.llm_model,
                         ca_file=settings.llm_tls_ca_file,
+                        chat_path=settings.llm_chat_path,
                     )
                 ),
             )
@@ -515,6 +590,7 @@ async def run_connectivity_checks(
                         settings.embedding_api_key,
                         settings.embedding_model,
                         ca_file=settings.embedding_tls_ca_file,
+                        embed_path=settings.embedding_path,
                     )
                 ),
             )

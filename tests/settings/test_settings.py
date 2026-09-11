@@ -16,7 +16,9 @@ def test_defaults_without_env(monkeypatch) -> None:
         "EMBEDDING_API_KEY",
         "EMBEDDING_MODEL",
         "LLM_TLS_CA_FILE",
+        "LLM_CHAT_PATH",
         "EMBEDDING_TLS_CA_FILE",
+        "EMBEDDING_PATH",
         "WORKER_CONCURRENCY",
         "MAX_INFLIGHT",
         "JOB_TIMEOUT_SEC",
@@ -41,6 +43,8 @@ def test_defaults_without_env(monkeypatch) -> None:
     assert settings.embed() is None
     assert settings.llm_tls_ca_file is None
     assert settings.embedding_tls_ca_file is None
+    assert settings.llm_chat_path == "/chat/completions"
+    assert settings.embedding_path == "/embeddings"
 
 
 def test_reads_process_env(monkeypatch) -> None:
@@ -88,10 +92,29 @@ def test_empty_api_key_env_is_unset_key_not_port(monkeypatch) -> None:
     assert settings.embed() is not None
 
 
-def test_native_lmstudio_prefix_becomes_openai_v1(monkeypatch) -> None:
+def test_api_v1_prefix_is_kept(monkeypatch) -> None:
     monkeypatch.setenv("LLM_BASE_URL", "http://localhost:1234/api/v1")
     settings = Settings(_env_file=None)
-    assert settings.llm_base_url == "http://localhost:1234/v1"
+    assert settings.llm_base_url == "http://localhost:1234/api/v1"
+
+
+def test_empty_chat_path_env_is_default(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm/v1")
+    monkeypatch.setenv("LLM_CHAT_PATH", "")
+    monkeypatch.setenv("EMBEDDING_BASE_URL", "http://emb/v1")
+    monkeypatch.setenv("EMBEDDING_MODEL", "e5")
+    monkeypatch.setenv("EMBEDDING_PATH", "  ")
+    settings = Settings(_env_file=None)
+    assert settings.llm_chat_path == "/chat/completions"
+    assert settings.embedding_path == "/embeddings"
+
+
+def test_invalid_chat_path_does_not_raise_from_factory(monkeypatch) -> None:
+    monkeypatch.setenv("LLM_BASE_URL", "http://llm/v1")
+    monkeypatch.setenv("LLM_CHAT_PATH", "http://evil/chat")
+    settings = Settings(_env_file=None)
+    assert settings.llm_configured() is True
+    assert settings.chat() is None
 
 
 def test_origin_without_v1_gets_openai_prefix(monkeypatch) -> None:
@@ -109,7 +132,7 @@ def test_loopback_rewritten_when_docker_host_set(monkeypatch) -> None:
     monkeypatch.setenv("EMBEDDING_BASE_URL", "http://127.0.0.1:1234")
     monkeypatch.setenv("EMBEDDING_MODEL", "e5")
     settings = Settings(_env_file=None)
-    assert settings.llm_base_url == "http://host.docker.internal:1234/v1"
+    assert settings.llm_base_url == "http://host.docker.internal:1234/api/v1"
     assert settings.embedding_base_url == "http://host.docker.internal:1234/v1"
 
 

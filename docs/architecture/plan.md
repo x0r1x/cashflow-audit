@@ -22,9 +22,9 @@
 
 ```
 REDIS_URL=redis://127.0.0.1:6379/0
-LLM_BASE_URL=…/v1  LLM_MODEL=…  [LLM_API_KEY опционален]  [LLM_TLS_CA_FILE=ca.pem]
-EMBEDDING_BASE_URL=…/v1  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY опционален]  [EMBEDDING_TLS_CA_FILE=ca.pem]
-# OpenAI-compatible: {base}/chat/completions, {base}/embeddings, {base}/models
+LLM_BASE_URL=…  LLM_MODEL=…  [LLM_API_KEY]  [LLM_TLS_CA_FILE]  [LLM_CHAT_PATH=/chat/completions]
+EMBEDDING_BASE_URL=…  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY]  [EMBEDDING_TLS_CA_FILE]  [EMBEDDING_PATH=/embeddings]
+# OpenAI JSON. URL = {BASE}{PATH}. Пустой path у BASE → /v1; /api/v1 не сносим.
 # HTTPS: публичный CA — ничего; свой PEM — LLM_TLS_CA_FILE / EMBEDDING_TLS_CA_FILE отдельно на каждый порт.
 ```
 

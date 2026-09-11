@@ -86,7 +86,7 @@ bash scripts/probe/run.sh
 
 В образе нет весов моделей. Redis — sidecar, LLM и embeddings — с хоста.
 
-Порты моделей — OpenAI-compatible (`/v1/chat/completions`, `/v1/embeddings`, `/v1/models`). В `.env` для compose:
+Порты моделей — OpenAI-compatible JSON. URL = `{BASE_URL}` + путь (`/chat/completions`, `/embeddings`, `/models`). Суффиксы chat/embed можно сменить: `LLM_CHAT_PATH`, `EMBEDDING_PATH`. В `.env` для compose:
 
 ```bash
 LLM_BASE_URL=http://host.docker.internal:1234/v1
