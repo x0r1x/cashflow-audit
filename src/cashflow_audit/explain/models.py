@@ -33,10 +33,23 @@ class Finding(BaseModel):
     need_user_input: bool = False
 
 
+class Conclusion(BaseModel):
+    id: str
+    kind: Literal["trust", "combo", "dynamics"]
+    severity: Severity
+    metrics: list[str] = Field(default_factory=list)
+    title: str
+    body: str
+    finding_ids: list[str]
+    cell_refs: list[str]
+    recommendation: str
+
+
 class ReportSummary(BaseModel):
     findings: int
     by_severity: dict[str, int]
     questions: int
+    headline: str = ""
 
 
 class Provenance(BaseModel):
@@ -54,6 +67,7 @@ class Report(BaseModel):
     embeddings_used: bool
     summary: ReportSummary
     findings: list[Finding]
+    conclusions: list[Conclusion] = Field(default_factory=list)
     questions: list[MappingQuestion] = Field(default_factory=list)
     provenance: Provenance = Field(default_factory=Provenance)
 

@@ -4,6 +4,7 @@ import logging
 
 from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.errors import PortError
+from cashflow_audit.explain.conclusions import build_conclusions, headline_for
 from cashflow_audit.explain.models import (
     ExplainCard,
     Finding,
@@ -95,6 +96,11 @@ def compose_report(
         _release(slots)
 
     _fill_related(findings, [item for _, _, item in kept])
+    conclusions = build_conclusions(
+        findings,
+        [cand for _index, cand, _item in kept],
+        [item for _index, _cand, item in kept],
+    )
 
     questions = _merge_questions(mapping.questions, check.questions, findings)
     if questions:
@@ -119,8 +125,10 @@ def compose_report(
             findings=len(findings),
             by_severity=by_severity,
             questions=len(questions),
+            headline=headline_for(conclusions, findings, questions),
         ),
         findings=findings,
+        conclusions=conclusions,
         questions=questions,
         provenance=Provenance(
             detector_version=DETECTOR_VERSION,

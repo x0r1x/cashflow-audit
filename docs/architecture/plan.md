@@ -329,6 +329,8 @@ class Candidate(BaseModel):
 
 ChatPort под `try_slot("llm")`. Шаблон всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только title/evidence/recommendation/need_user_input; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа impact. `related_ids` — общий downstream.
 
+После карточек код собирает `conclusions[]` (не отдельная стадия, не LLM): склейка находок правилами. Порядок kind: `trust` (равенство/Excel сломаны) → `combo` (техника + риск на той же метрике/периоде) → `dynamics` (риск без тех. пары). Повторы одного детектора по периодам сворачиваются. Потолок 8; остальное остаётся в `findings`. `cell_refs` вывода ⊆ refs цитируемых находок. Каталог combo v1: хардкод/`pattern_break` + `risk.ebitda_drop`; `identity.I1` + `risk.cash_negative` (тот же col); `external_link` + находка с общей метрикой/path. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline` из выводов; нуль находок — «по включённым проверкам», не «модель верна». `needs_input` дописывает, что маппинг неполный.
+
 Drop находки без ref ∈ IR.
 
 Нет eligible-находок (после drop / top-N пуст) → LLM не зовём → не `degraded`, даже если ChatPort задан.

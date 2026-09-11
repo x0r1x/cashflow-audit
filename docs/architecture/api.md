@@ -239,7 +239,8 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
   "summary": {
     "findings": 4,
     "by_severity": { "error": 1, "warning": 2, "risk": 1 },
-    "questions": 1
+    "questions": 1,
+    "headline": "Баланс не сходится; снижение EBITDA зависит от ручной подстановки"
   },
   "findings": [
     {
@@ -271,6 +272,30 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
       "need_user_input": false
     }
   ],
+  "conclusions": [
+    {
+      "id": "c_001",
+      "kind": "trust",
+      "severity": "error",
+      "metrics": ["bs.assets", "bs.equity", "bs.liabilities"],
+      "title": "Баланс не сходится",
+      "body": "Контрольное равенство нарушено в 2 периодах. Метрики этих периодов недостоверны, пока разрыв не объяснён.",
+      "finding_ids": ["f_001"],
+      "cell_refs": ["BS!E27", "BS!E63"],
+      "recommendation": "Проверить указанные ячейки. Файл не изменён."
+    },
+    {
+      "id": "c_002",
+      "kind": "combo",
+      "severity": "warning",
+      "metrics": ["pnl.revenue", "pnl.ebitda"],
+      "title": "Снижение EBITDA зависит от ручной подстановки",
+      "body": "В формуле зашита константа (P&L!D24); одновременно падает EBITDA/маржа. Динамику нельзя читать как факт модели.",
+      "finding_ids": ["f_014"],
+      "cell_refs": ["P&L!D24"],
+      "recommendation": "Сверить константу с блоком предпосылок. Файл не изменён."
+    }
+  ],
   "questions": [
     {
       "id": "q_012",
@@ -289,6 +314,8 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 ```
 
 Поля находки = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR находки в ответе нет.
+
+`summary.headline` — одна фраза из выводов (не вердикт «модель верна»). `conclusions[]` собирает код из уже существующих карточек: `finding_ids` непустые, `cell_refs` ⊆ refs этих находок ⊆ IR. LLM текст выводов не пишет. Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 
 `404` если аудита не было. `403` если `X-Actor-Id` не владелец (`owner.json`). Отдельного `/findings` нет. `sha256` в отчёте — хеш **содержимого** файла, не `audit_id`.
 
