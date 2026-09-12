@@ -115,7 +115,7 @@ def test_check_row_is_not_second_i1_finding() -> None:
     assert len(found) == 1
 
 
-def test_i3a_cash_rollforward_break() -> None:
+def test_i3a_does_not_treat_cfo_as_net_cash_flow() -> None:
     layout = simple_layout(
         [
             LayoutRow(row=2, label="Cash"),
@@ -141,17 +141,50 @@ def test_i3a_cash_rollforward_break() -> None:
             mapping=mapping,
         )
     )
-    assert [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert not [c for c in result.candidates if c.detector == "identity.I3a"]
 
 
-def test_i3a_pairs_cash_and_cfo_across_sheets() -> None:
+def test_i3a_fcf_rollforward_break() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Cash"),
+            LayoutRow(row=3, label="FCF"),
+        ],
+        sheet="CF",
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("CF", "B2", "100"),
+                cell("CF", "C2", "130"),
+                cell("CF", "B3", "10"),
+                cell("CF", "C3", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert found
+    assert "CF!B2" in found[0].cell_refs
+    assert "CF!C2" in found[0].cell_refs
+    assert "CF!C3" in found[0].cell_refs
+
+
+def test_i3a_pairs_cash_and_fcf_across_sheets() -> None:
     bs = simple_layout([LayoutRow(row=2, label="Cash")], sheet="BS")
-    cf = simple_layout([LayoutRow(row=3, label="CFO")], sheet="CF")
+    cf = simple_layout([LayoutRow(row=3, label="FCF")], sheet="CF")
     layout = Layout(sheets=[*bs.sheets, *cf.sheets])
     mapping = MappingDocument(
         rows=[
             mapped("BS", 2, "Cash", "bs.cash", role="output"),
-            mapped("CF", 3, "CFO", "cf.cfo", role="calculation"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="calculation"),
         ]
     )
     result = run_checks(
@@ -167,6 +200,63 @@ def test_i3a_pairs_cash_and_cfo_across_sheets() -> None:
         )
     )
     assert [c for c in result.candidates if c.detector == "identity.I3a"]
+
+
+def test_i3a_aligns_periods_by_key_not_column() -> None:
+    bs_axis = headers((2, "2023", "historical"), (3, "2024E", "forecast"))
+    cf_axis = headers((5, "2023", "historical"), (6, "2024E", "forecast"))
+    bs = Layout(
+        sheets=[
+            SheetLayout(
+                name="BS",
+                blocks=[
+                    Block(
+                        block_id="BS!r1",
+                        label_col=1,
+                        axis=Axis(id="BS!r1", row=1, headers=bs_axis),
+                        rows=[LayoutRow(row=2, label="Cash")],
+                    )
+                ],
+            )
+        ]
+    )
+    cf = Layout(
+        sheets=[
+            SheetLayout(
+                name="CF",
+                blocks=[
+                    Block(
+                        block_id="CF!r1",
+                        label_col=1,
+                        axis=Axis(id="CF!r1", row=1, headers=cf_axis),
+                        rows=[LayoutRow(row=3, label="FCF")],
+                    )
+                ],
+            )
+        ]
+    )
+    layout = Layout(sheets=[*bs.sheets, *cf.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "130"),
+                cell("CF", "E3", "10"),
+                cell("CF", "F3", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert found
+    assert found[0].cell_refs == ["BS!B2", "BS!C2", "CF!F3"]
 
 
 def test_i3b_without_re_concept_is_question() -> None:
