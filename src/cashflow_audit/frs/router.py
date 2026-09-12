@@ -44,11 +44,20 @@ HANDLERS: dict[str, Handler] = {
 }
 
 
+_CONF_RANK = {"low": 0, "medium": 1, "high": 2}
+_IDENTITY_CAP = {
+    "identity.I1": ("F06", "F08"),
+    "identity.I3a": ("F04", "F08"),
+    "identity.I3b": ("F13",),
+}
+
+
 def run_frs(
     mapping: MappingDocument,
     *,
     layout: Layout | None = None,
     cells: list[dict] | None = None,
+    identity: frozenset[str] | None = None,
 ) -> FrsDocument:
     have = {row.concept_id for row in mapping.rows if row.concept_id}
     ctx = FrsCtx(mapping=mapping, layout=layout, cells=cells or [])
@@ -70,4 +79,31 @@ def run_frs(
         controls.append(result)
         if issue is not None:
             issues.append(issue)
-    return FrsDocument(controls=controls, issues=issues)
+    return _with_confidence(
+        FrsDocument(controls=controls, issues=issues),
+        identity or frozenset(),
+    )
+
+
+def _with_confidence(doc: FrsDocument, identity: frozenset[str]) -> FrsDocument:
+    caps: dict[str, str] = {}
+    for detector, ids in _IDENTITY_CAP.items():
+        if detector not in identity:
+            continue
+        for fid in ids:
+            caps[fid] = "low"
+    for control in doc.controls:
+        if control.status not in {"clear", "flagged"}:
+            continue
+        if control.confidence is None:
+            control.confidence = "high"
+        cap = caps.get(control.id)
+        if cap:
+            control.confidence = _worse(control.confidence, cap)
+    return doc
+
+
+def _worse(current: str, cap: str) -> str:
+    if _CONF_RANK[current] <= _CONF_RANK[cap]:
+        return current
+    return cap

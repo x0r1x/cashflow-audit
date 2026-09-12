@@ -280,6 +280,7 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                 {"ratio": ratio, "period_key": key},
                 "leverage",
                 "medium",
+                confidence="medium",
             )
         if index > 0 and ratio - ratios[index - 1][1] >= DEBT_EBITDA_JUMP:
             return _finish(
@@ -293,8 +294,9 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                 },
                 "leverage",
                 "medium",
+                confidence="medium",
             )
-    return _finish(spec_id, name, [], {}, "leverage", "medium")
+    return _finish(spec_id, name, [], {}, "leverage", "medium", confidence="medium")
 
 
 def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:

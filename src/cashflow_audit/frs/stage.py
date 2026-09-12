@@ -4,6 +4,7 @@ import logging
 import time
 from pathlib import Path
 
+from cashflow_audit.checkers.models import CheckDocument
 from cashflow_audit.frs.models import FrsDocument
 from cashflow_audit.frs.router import run_frs
 from cashflow_audit.layout.models import Layout
@@ -31,7 +32,18 @@ def frs_workbook(dest_dir: Path) -> FrsDocument:
     cells_path = dest_dir / "ir" / "cells.parquet"
     if cells_path.exists():
         cells = read_parquet(cells_path)
-    doc = run_frs(mapping, layout=layout, cells=cells)
+    identity: frozenset[str] = frozenset()
+    candidates_path = dest_dir / "candidates.json"
+    if candidates_path.exists():
+        check = CheckDocument.model_validate_json(
+            candidates_path.read_text(encoding="utf-8")
+        )
+        identity = frozenset(
+            item.detector
+            for item in check.candidates
+            if item.detector.startswith("identity.")
+        )
+    doc = run_frs(mapping, layout=layout, cells=cells, identity=identity)
     write_json(path, doc.model_dump(mode="json"))
     log_event(
         _LOGGER,
