@@ -11,6 +11,8 @@ I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
+I9_NEED = ("pnl.net_income", "cf.cfo")
+I9_NICE = ("pnl.da", "bs.ar", "bs.inventory", "bs.ap")
 I10_STOCK = ("bs.debt",)
 I10_FLOWS = ("cf.drawdown", "cf.repayment")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
@@ -56,6 +58,27 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.ebit"],
                 group["pnl.ebitda"],
                 group["pnl.da"],
+            )
+        )
+    qn = _maybe_question(questions, qn, "I9", I9_NEED, book, ctx)
+    if all(cid in book for cid in I9_NEED) and not any(cid in book for cid in I9_NICE):
+        qn = _maybe_question(questions, qn, "I9", I9_NICE, book, ctx)
+    for group in _groups(by_block, book, I9_NEED):
+        da = group.get("pnl.da") or book.get("pnl.da")
+        ar = group.get("bs.ar") or book.get("bs.ar")
+        inv = group.get("bs.inventory") or book.get("bs.inventory")
+        ap = group.get("bs.ap") or book.get("bs.ap")
+        if da is None and ar is None and inv is None and ap is None:
+            continue
+        candidates.extend(
+            _i9(
+                ctx,
+                group["pnl.net_income"],
+                group["cf.cfo"],
+                da,
+                ar,
+                inv,
+                ap,
             )
         )
     qn = _maybe_question(questions, qn, "I10", I10_STOCK, book, ctx)
@@ -335,6 +358,74 @@ def _i10(
             )
         )
     return found
+
+
+def _i9(
+    ctx: CheckContext,
+    ni: MappedRow,
+    cfo: MappedRow,
+    da: MappedRow | None,
+    ar: MappedRow | None,
+    inv: MappedRow | None,
+    ap: MappedRow | None,
+) -> list[Candidate]:
+    slots = _aligned(ctx, ni, cfo)
+    da_cols = _axis_cols(ctx, da) if da is not None else {}
+    found: list[Candidate] = []
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        pkey, _prev_cols = prev
+        key, cur_cols = cur
+        income = _value(ctx, ni, cur_cols[0])
+        got = _value(ctx, cfo, cur_cols[1])
+        if income is None or got is None:
+            continue
+        da_v = 0.0
+        refs = [_cell_ref(ni, cur_cols[0]), _cell_ref(cfo, cur_cols[1])]
+        if da is not None and key in da_cols:
+            part = _value(ctx, da, da_cols[key])
+            if part is None:
+                continue
+            da_v = part
+            refs.append(_cell_ref(da, da_cols[key]))
+        d_ar, ar_refs = _stock_delta(ctx, ar, pkey, key)
+        d_inv, inv_refs = _stock_delta(ctx, inv, pkey, key)
+        d_ap, ap_refs = _stock_delta(ctx, ap, pkey, key)
+        if d_ar is None or d_inv is None or d_ap is None:
+            continue
+        expected = income + da_v - d_ar - d_inv + d_ap
+        thresh = max(1.0, 0.001 * max(abs(got), abs(income)))
+        if abs(got - expected) <= thresh:
+            continue
+        refs.extend(ar_refs)
+        refs.extend(inv_refs)
+        refs.extend(ap_refs)
+        found.append(
+            Candidate(
+                detector="identity.I9",
+                cell_refs=refs,
+                payload={"col": cur_cols[1], "period_key": key, "delta": got - expected},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _stock_delta(
+    ctx: CheckContext,
+    row: MappedRow | None,
+    prev_key: str,
+    key: str,
+) -> tuple[float | None, list[str]]:
+    if row is None:
+        return 0.0, []
+    cols = _axis_cols(ctx, row)
+    if prev_key not in cols or key not in cols:
+        return None, []
+    before = _value(ctx, row, cols[prev_key])
+    after = _value(ctx, row, cols[key])
+    if before is None or after is None:
+        return None, []
+    return after - before, [_cell_ref(row, cols[prev_key]), _cell_ref(row, cols[key])]
 
 
 _ROLE_RANK = {"historical": 0, "stub": 1, "forecast": 2}
