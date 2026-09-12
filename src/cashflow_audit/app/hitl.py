@@ -12,6 +12,8 @@ _TAIL = (
     "mapping.json",
     "candidates.json",
     "lineage.json",
+    "frs.json",
+    "integrity.json",
     "report.json",
     "meta.json",
 )

@@ -40,7 +40,7 @@ EMBEDDING_BASE_URL=…  EMBEDDING_MODEL=…  [EMBEDDING_API_KEY]  [EMBEDDING_TLS
 | Query | DuckDB `:memory:` | SQL по parquet аудита, жизнь = `Pipeline.run` |
 | Durable | диск **на PVC** (не emptyDir) | xlsx, parquet, JSON стадий, owner, терминальный meta |
 
-Находки только `report.json`. Ячейки только parquet. Нет `.duckdb` на диске, нет `index.json`, нет SQLite.
+Находки техники/identity — `integrity.json`. Итог FRS — тонкий `report.json`. Ячейки только parquet. Нет `.duckdb` на диске, нет `index.json`, нет SQLite.
 
 Порты: `ChatPort`, `EmbedPort`, `AuditStore`, `JobBus`. SDK в `adapters/`. CLI и HTTP → один `Pipeline.run()`.
 
@@ -78,12 +78,13 @@ GET/answers: `owner.json.actor_id` должен совпасть, иначе `40
 | series | нет файла | всегда `CREATE VIEW` после layout |
 | mapping | `mapping.json` | **не** звать embed/LLM |
 | check | `candidates.json` | — |
+| frs | `frs.json` | — |
 | lineage | `lineage.json` | — |
-| explain+report | `report.json` + `meta.json` | **не** звать LLM |
+| explain+report | `report.json` + `integrity.json` + `meta.json` | **не** звать LLM |
 
 Worker **всегда** `Pipeline.run` с parse. HITL не передаёт `resume_from`: удалили хвост артефактов — skip сам остановится на mapping.
 
-**HITL:** свой glossary += answers; стереть `mapping.json`, `candidates.json`, `lineage.json`, `report.json`, `meta.json`; `XADD` только `audit_id`.
+**HITL:** свой glossary += answers; стереть `mapping.json`, `candidates.json`, `lineage.json`, `frs.json`, `integrity.json`, `report.json`, `meta.json`; `XADD` только `audit_id`.
 
 **Рестарт app** (Redis жив): `XAUTOCLAIM` idle > 60s. **Рестарт пода** (Redis emptyDir пуст, диск PVC цел): `XADD` каталогов с `owner.json` без `report.json`. GET в этот момент: нет HASH, есть `owner.json` без report → `queued` (reconcile), не `404`.
 
@@ -158,8 +159,9 @@ CLI ─────────────────────────�
 | series | SQL outliers | detector как чекер |
 | mapping | concept_id, роль **статьи** | hist/forecast |
 | graph | SCC, BFS | текст |
-| checkers | Candidate[] | проза, HTTP |
-| explain | Finding | новые refs/метрики |
+| checkers | Candidate[] техника + identity | проза, HTTP, FRS |
+| frs | матрица F01–F14 | проза, HTTP |
+| explain | Finding; тонкий report + integrity | новые refs/метрики |
 | adapters | OpenAI, redis-py | домен |
 
 ---
@@ -168,13 +170,13 @@ CLI ─────────────────────────�
 
 Тела и примеры: [`api.md`](api.md). `serve` требует Redis. `WORKER_CONCURRENCY` consumer’ов в процессе API.
 
-`POST /v1/audits` · `GET /v1/audits/{id}` · `GET /v1/audits/{id}/report` · `POST /v1/audits/{id}/answers` · `/healthz` · `/readyz`
+`POST /v1/audits` · `GET /v1/audits/{id}` · `GET /v1/audits/{id}/layout` · `GET /v1/audits/{id}/mapping` · `GET /v1/audits/{id}/integrity` · `GET /v1/audits/{id}/report` · `POST /v1/audits/{id}/answers` · `/healthz` · `/readyz`
 
 Терминальный `status` (один, не флаги):
 
 `failed` > `needs_input` (questions непусты) > `degraded` (LLM не ответил при eligible-находках, questions пусто) > `succeeded`
 
-Live: `queued` | `running`. Нет `/findings`.
+Live: `queued` | `running`. Нет `/findings`. `/report` = итог FRS, не свалка предыдущих шагов. Layout/mapping можно отдать, как только файл есть (даже при `running`). Integrity и report — после explain.
 
 ---
 
@@ -263,7 +265,7 @@ workbook.json: листы, макро/xlm, externals[], locale_hint.
 
 **Вход:** catalog.cells. **Выход:** `layout.json`.
 
-Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — regex `2025E` / `1 кв. 2025` / факт|план; строка биндится к оси **внутри блока**. Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка.
+Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — regex `2025E` / `1 кв. 2025` / `янв.25` / `Jan-25` / `2025-01` / факт|план; строка биндится к оси **внутри блока**. Месяц → `period_key=YYYY-MM` (иначе `_period_count` не видит ось). Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка.
 
 Имя листа — слабый признак. Роль периода ≠ роль статьи.
 
@@ -304,11 +306,12 @@ Label column — левая видимая строковая в блоке (ski
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | I1, I3a, I3b, I5, I7 | IdentityResolver; нет concept → Question |
-| `risk.*` | ряд mapped concept по оси периода; не ошибка модели |
 
-IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период с оси layout: только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding.
+IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки; только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
 
-Сигналы риска (`risk.*`, severity `risk`): падение выручки/EBITDA г/г (10%), маржа −5 п.п., отрицательная EBITDA/NI ≥ 2 периода, CFO < 0, касса < 0, рост долг/EBITDA ≥ 1.0x (не net debt), ICR = EBIT/|interest| < 1.5, прогнозный рост выручки выше истории на 15 п.п., дивиденды > CFO. Нет concept — молчание, не Question. FCF и DSCR не считаем, пока нет `cf.fcf` / строки DSCR в онтологии.
+I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error). Нет net CF → не Finding. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
+
+Сигналы риска (`risk.*`) **не** в check — стадия `frs`.
 
 Дедуп `(detector, frozenset(cell_refs))`.
 
@@ -321,23 +324,46 @@ class Candidate(BaseModel):
     base_severity: Literal["error", "warning", "risk"]
 ```
 
-### 8.7 lineage
+### 8.7 frs
 
-**Выход:** `lineage.json`. Reverse BFS по тому же CSR до output-concept. Impact: число из identity delta, иначе направление. Метрики карточки только отсюда.
+**Выход:** `frs.json` (внутренний). Закрытая матрица F01–F14 всегда. Нет concept → `not_applicable` / `insufficient`, не HITL. Числа считает код; LLM статус F-строки не ставит.
 
-### 8.8 explain + report
+Порядок: **после check, до lineage**, чтобы BFS покрыл flagged F-refs.
 
-ChatPort под `try_slot("llm")`. Шаблон всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только title/evidence/recommendation/need_user_input; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа impact. `related_ids` — общий downstream.
+FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в книге, без двойного минуса), tag `derived`. DSCR/LLCR/PLCR только mapped-строка. Net debt = `bs.debt − bs.cash` если оба есть.
 
-После карточек код собирает `conclusions[]` (не отдельная стадия, не LLM): склейка находок правилами. Порядок kind: `trust` (равенство/Excel сломаны) → `combo` (техника + риск на той же метрике/периоде) → `dynamics` (риск без тех. пары). Повторы одного детектора по периодам сворачиваются. Потолок 8; остальное остаётся в `findings`. `cell_refs` вывода ⊆ refs цитируемых находок. Каталог combo v1: хардкод/`pattern_break` + `risk.ebitda_drop`; `identity.I1` + `risk.cash_negative` (тот же col); `external_link` + находка с общей метрикой/path. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline` из выводов; нуль находок — «по включённым проверкам», не «модель верна». `needs_input` дописывает, что маппинг неполный.
+Периоды по `period_key`. F01–F03, F06, F11 — год; F08/F09 — finest axis (месяц `YYYY-MM`); только год у F08 → `insufficient`.
+
+`ready_for_credit`: `false` если high-issue или identity error или `excel_error`; иначе `null` (не `true`).
+
+Каталог и пороги — в этом плане §8.7.1 и в гайде. `risk.*` из check сюда не копировать как sparse findings: экран всегда 14 строк.
+
+### 8.7.1 F01–F14 (кратко)
+
+F01 выручка (падение / обрыв факт→прогноз / план-факт ≥10%). F02 EBITDA/маржа. F03 убытки ≥2 периода. F04 NI vs CFO vs FCF, cause `ops|wc_ar|wc_ap|capex|dividends`. F05 DSO от выручки, DIO/DPO от COGS. F06 Net Debt/EBITDA. F07 ICR = EBITDA/|interest|, DSCR только mapped. F08 min cash, runway, cash plug (плоский EoP + drawdown). F09 концентрация погашений ≥30%. F10 FX без строки → insufficient. F11 прогноз vs история ≥15 п.п. F12 выручка vs FCF. F13 дивиденды vs FCFF/FCFE. F14 headroom без ковенантов → insufficient.
+
+### 8.8 lineage
+
+**Выход:** `lineage.json`. Reverse BFS по тому же CSR до output-concept. Читает `candidates.json` **и** flagged из `frs.json`. Impact: число из identity/FRS payload, иначе направление. Метрики карточки только отсюда.
+
+### 8.9 explain + report
+
+ChatPort под `try_slot("llm")`. Шаблон всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только title/evidence/recommendation/need_user_input; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа impact. `related_ids` — общий downstream. LLM не пишет вердикт FRS и не ставит статус F-строки.
+
+Нарезка контента:
+
+- `integrity.json` — карточки техники и identity (Note01+02)
+- тонкий `report.json` — матрица F01–F14, issues, positives, verdict, conclusions, индекс questions. **Нет** полного списка excel_error / unused_cell
+
+`conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline` из выводов; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null}.
 
 Drop находки без ref ∈ IR.
 
 Нет eligible-находок (после drop / top-N пуст) → LLM не зовём → не `degraded`, даже если ChatPort задан.
 
-`questions` = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)`.
+`questions` = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)` — индекс в report для HITL.
 
-Атомарно `report.json` + `meta.json` (терминальный снимок job; `owner.json` уже есть). Воркер после return: HSET терминал, DEL budget, unlock audit, ACK, release run-slot.
+Атомарно `report.json` + `integrity.json` + `meta.json`. Воркер после return: HSET терминал, DEL budget, unlock audit, ACK, release run-slot.
 
 ---
 
@@ -357,7 +383,7 @@ class ChatPort(Protocol):
 
 ## 10. Выход
 
-Канон — `report.json` (поля = требования). Схема и примеры: [`api.md`](api.md).
+Канон HTTP: тонкий `report.json` (FRS) + `integrity.json` + `layout.json` + `mapping.json`. Схема: [`api.md`](api.md). Нет `/findings`.
 
 ---
 
@@ -375,7 +401,9 @@ data/audits/{audit_id}/
   layout.json
   mapping.json
   candidates.json
+  frs.json
   lineage.json
+  integrity.json
   report.json
 data/glossary/{actor_id}.json
 data/taxonomy_embeddings.npz
@@ -397,10 +425,10 @@ src/cashflow_audit/
   api/  cli.py  app/pipeline.py  ports/
   adapters/openai_chat.py  openai_embed.py  redis_jobbus.py
   store/fs.py  ir/catalog.py
-  parse/  compile/  layout/  series/  mapping/  graph/  checkers/  explain/
+  parse/  compile/  layout/  series/  mapping/  graph/  checkers/  frs/  explain/
 ```
 
-`checkers` ↛ adapters, explain.
+`checkers` ↛ adapters, explain. `frs` ↛ adapters, explain.
 
 ---
 
@@ -424,7 +452,7 @@ src/cashflow_audit/
 
 ## 14. Вне этапа 1
 
-Контейнеры LLM/embed (кроме клиента); облако как must; Postgres/SQLite; **общий** Redis вне пода (нужен для второго реплики API); UI; recalc; VBA; правка xlsx; сигналы FCF/DSCR; PDF; JWT вместо `X-Actor-Id`.
+Контейнеры LLM/embed (кроме клиента); облако как must; Postgres/SQLite; **общий** Redis вне пода (нужен для второго реплики API); UI; recalc; VBA; правка xlsx; изобретать DSCR/LLCR без mapped-строки; PDF; JWT вместо `X-Actor-Id`.
 
 Готово: повторный POST того же файла **тем же** актёром не создаёт job и не зовёт LLM; несколько актёров крутятся параллельно в одном поде; отчёт с `cell_refs` из IR.
 

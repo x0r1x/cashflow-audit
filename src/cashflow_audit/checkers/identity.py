@@ -7,7 +7,7 @@ from cashflow_audit.mapping.models import MappedRow, MappingQuestion
 from cashflow_audit.parse.a1 import format_addr
 
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
-I3A_CONCEPTS = ("bs.cash", "cf.cfo")
+I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
@@ -25,10 +25,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         candidates.extend(
             _i1(ctx, group["bs.assets_total"], group["bs.equity"], group["bs.liabilities"])
         )
-    qn = _maybe_question(questions, qn, "I3a", I3A_CONCEPTS, book, ctx)
+    qn = _maybe_question(questions, qn, "I3a", ("bs.cash",), book, ctx)
     for group in _groups(by_block, book, I3A_CONCEPTS):
         candidates.extend(
-            _rollforward(ctx, "identity.I3a", group["bs.cash"], [group["cf.cfo"]], add=True)
+            _rollforward(ctx, "identity.I3a", group["bs.cash"], [group["cf.fcf"]], add=True)
         )
     qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I3B_CONCEPTS):
@@ -131,10 +131,10 @@ def _i1(
     liab: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for col in _period_cols(ctx, assets, equity, liab):
-        a = _value(ctx, assets, col)
-        e = _value(ctx, equity, col)
-        lia = _value(ctx, liab, col)
+    for key, cols in _aligned(ctx, assets, equity, liab):
+        a = _value(ctx, assets, cols[0])
+        e = _value(ctx, equity, cols[1])
+        lia = _value(ctx, liab, cols[2])
         if a is None or e is None or lia is None:
             continue
         delta = a - (e + lia)
@@ -145,11 +145,11 @@ def _i1(
             Candidate(
                 detector="identity.I1",
                 cell_refs=[
-                    _cell_ref(assets, col),
-                    _cell_ref(equity, col),
-                    _cell_ref(liab, col),
+                    _cell_ref(assets, cols[0]),
+                    _cell_ref(equity, cols[1]),
+                    _cell_ref(liab, cols[2]),
                 ],
-                payload={"delta": delta, "col": col},
+                payload={"delta": delta, "col": cols[0], "period_key": key},
                 base_severity="error",
             )
         )
@@ -164,10 +164,10 @@ def _minus(
     right: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for col in _period_cols(ctx, result, left, right):
-        got = _value(ctx, result, col)
-        lhs = _value(ctx, left, col)
-        rhs = _value(ctx, right, col)
+    for key, cols in _aligned(ctx, result, left, right):
+        got = _value(ctx, result, cols[0])
+        lhs = _value(ctx, left, cols[1])
+        rhs = _value(ctx, right, cols[2])
         if got is None or lhs is None or rhs is None:
             continue
         delta = got - (lhs - rhs)
@@ -178,11 +178,11 @@ def _minus(
             Candidate(
                 detector=detector,
                 cell_refs=[
-                    _cell_ref(result, col),
-                    _cell_ref(left, col),
-                    _cell_ref(right, col),
+                    _cell_ref(result, cols[0]),
+                    _cell_ref(left, cols[1]),
+                    _cell_ref(right, cols[2]),
                 ],
-                payload={"delta": delta, "col": col},
+                payload={"delta": delta, "col": cols[0], "period_key": key},
                 base_severity="error",
             )
         )
@@ -197,15 +197,17 @@ def _rollforward(
     *,
     add: bool,
 ) -> list[Candidate]:
-    cols = _period_cols(ctx, stock, *flows)
+    slots = _aligned(ctx, stock, *flows)
     found: list[Candidate] = []
-    for prev, cur in zip(cols, cols[1:], strict=False):
-        opening = _value(ctx, stock, prev)
-        closing = _value(ctx, stock, cur)
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        opening = _value(ctx, stock, prev_cols[0])
+        closing = _value(ctx, stock, cur_cols[0])
         flow = 0.0
         ok = True
-        for item in flows:
-            part = _value(ctx, item, cur)
+        for index, item in enumerate(flows):
+            part = _value(ctx, item, cur_cols[index + 1])
             if part is None:
                 ok = False
                 break
@@ -216,11 +218,14 @@ def _rollforward(
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
+        refs = [_cell_ref(stock, prev_cols[0]), _cell_ref(stock, cur_cols[0])]
+        for index, item in enumerate(flows):
+            refs.append(_cell_ref(item, cur_cols[index + 1]))
         found.append(
             Candidate(
                 detector=detector,
-                cell_refs=[_cell_ref(stock, prev), _cell_ref(stock, cur)],
-                payload={"col": cur},
+                cell_refs=refs,
+                payload={"col": cur_cols[0], "period_key": key},
                 base_severity="error",
             )
         )
@@ -233,28 +238,65 @@ def _i3b(
     ni: MappedRow,
     div: MappedRow | None,
 ) -> list[Candidate]:
-    cols = _period_cols(ctx, retained, ni)
+    slots = _aligned(ctx, retained, ni)
+    div_cols = _axis_cols(ctx, div) if div is not None else {}
     found: list[Candidate] = []
-    for prev, cur in zip(cols, cols[1:], strict=False):
-        opening = _value(ctx, retained, prev)
-        closing = _value(ctx, retained, cur)
-        income = _value(ctx, ni, cur)
-        dividends = _value(ctx, div, cur) if div is not None else 0.0
-        if opening is None or closing is None or income is None or dividends is None:
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        opening = _value(ctx, retained, prev_cols[0])
+        closing = _value(ctx, retained, cur_cols[0])
+        income = _value(ctx, ni, cur_cols[1])
+        dividends = 0.0
+        if div is not None and key in div_cols:
+            part = _value(ctx, div, div_cols[key])
+            if part is None:
+                continue
+            dividends = part
+        if opening is None or closing is None or income is None:
             continue
         expected = opening + income - dividends
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
+        refs = [
+            _cell_ref(retained, prev_cols[0]),
+            _cell_ref(retained, cur_cols[0]),
+            _cell_ref(ni, cur_cols[1]),
+        ]
+        if div is not None and key in div_cols:
+            refs.append(_cell_ref(div, div_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I3b",
-                cell_refs=[_cell_ref(retained, prev), _cell_ref(retained, cur)],
-                payload={"col": cur},
+                cell_refs=refs,
+                payload={"col": cur_cols[0], "period_key": key},
                 base_severity="error",
             )
         )
     return found
+
+
+def _axis_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
+    found: dict[str, int] = {}
+    for sheet in ctx.layout.sheets:
+        for block in sheet.blocks:
+            if sheet.name != row.sheet or block.block_id != row.block_id:
+                continue
+            for header in block.axis.headers:
+                if header.role in _IDENTITY_PERIOD_ROLES:
+                    found[header.period_key] = header.col
+    return found
+
+
+def _aligned(ctx: CheckContext, *rows: MappedRow) -> list[tuple[str, list[int]]]:
+    maps = [_axis_cols(ctx, row) for row in rows]
+    if not maps or any(not item for item in maps):
+        return []
+    keys = set(maps[0])
+    for item in maps[1:]:
+        keys &= set(item)
+    return [(key, [item[key] for item in maps]) for key in sorted(keys)]
 
 
 def _period_cols(ctx: CheckContext, *rows: MappedRow) -> list[int]:

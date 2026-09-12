@@ -31,12 +31,19 @@ cashflow-audit audit ./model.xlsx -o ./report.json
 
 ## 2. Что выходит
 
-Два внешних объекта. Всё остальное (parquet, mapping) — внутренние артефакты диска, по HTTP не отдаём.
+Контроль: статус job. Контент — по шагам, не один жирный JSON.
 
-1. **Статус job** — пока считается или после финала.
-2. **Отчёт** — когда есть `report.json`.
+| GET | Файл | Что внутри |
+|---|---|---|
+| `/v1/audits/{id}` | live / meta | статус, `content` ссылки |
+| `/v1/audits/{id}/layout` | `layout.json` | оси, блоки, роли периодов |
+| `/v1/audits/{id}/mapping` | `mapping.json` | rows + mapping questions |
+| `/v1/audits/{id}/integrity` | `integrity.json` | карточки техники и identity |
+| `/v1/audits/{id}/report` | `report.json` | FRS F01–F14, issues, вердикт, conclusions, индекс questions |
 
-Клиент: `POST` файл → poll `GET /v1/audits/{id}` пока `running`/`queued` → `GET .../report`.
+Не отдаём: parquet, `cached_value`, формулы, `source.xlsx`, `candidates.json`, `frs.json`, `lineage.json`. Нет `/findings`.
+
+Клиент: `POST` файл → poll `GET /v1/audits/{id}` пока `running`/`queued` → при терминале `GET .../report` (итог) и при необходимости `.../integrity`. Layout/mapping доступны, как только файл появился.
 
 ---
 
@@ -167,7 +174,7 @@ Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
 }
 ```
 
-`stage`: `queued` | `parse` | `compile` | `layout` | `mapping` | `check` | `lineage` | `explain`.
+`stage`: `queued` | `parse` | `compile` | `layout` | `mapping` | `check` | `frs` | `lineage` | `explain`.
 
 **Готово:**
 
@@ -178,7 +185,13 @@ Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
   "stage": "done",
   "source_filename": "cashflow.xlsx",
   "error": null,
-  "report_url": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/report"
+  "report_url": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/report",
+  "content": {
+    "layout": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/layout",
+    "mapping": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/mapping",
+    "integrity": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/integrity",
+    "report": "/v1/audits/a3f1c8e0b91d4e6a7c2f0d8b5e1a9c4d6e8f0123/report"
+  }
 }
 ```
 
@@ -226,6 +239,10 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 ```json
 { "error": "report_not_ready", "status": "running", "stage": "layout" }
 ```
+
+`GET .../layout`, `.../mapping`, `.../integrity` — тот же `X-Actor-Id`, 403/404 как у report. Нет файла → `409` с `error` (`layout_not_ready` / `mapping_not_ready` / `integrity_not_ready` / `report_not_ready`), `status`, `stage`.
+
+`200` у `/report` — тонкий итог FRS (матрица, issues, verdict, conclusions, индекс questions). Карточки Excel/identity — `/integrity`, не дублируются здесь.
 
 `200` — канон выхода приложения:
 
@@ -315,6 +332,8 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 ```
 
 Поля находки = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR находки в ответе нет.
+
+Карточки `excel_error` / `identity.*` в примере выше живут в `GET .../integrity`. `/report` держит FRS (`risk_screen`: 14 строк F01–F14, `ready_for_credit` false или null) и цитирует integrity id в conclusions.
 
 `summary.headline` — одна фраза из выводов (не вердикт «модель верна»). `conclusions[]` собирает код из уже существующих карточек: `finding_ids` непустые, `cell_refs` ⊆ refs этих находок ⊆ IR. LLM текст выводов не пишет. Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 

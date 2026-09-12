@@ -29,6 +29,7 @@ def test_skip_existing_report_does_not_call_llm(dest: Path) -> None:
         },
     )
     write_json(dest / "meta.json", {"status": "succeeded", "stage": "done", "error": None})
+    write_json(dest / "integrity.json", {"findings": []})
     chat = FakeChat()
     explain_workbook(dest, chat=chat, slots=GrantSlots())
     assert chat.calls == 0
@@ -96,6 +97,7 @@ def test_writes_report_and_meta_atomically(dest: Path) -> None:
     )
     report = explain_workbook(dest, chat=None, slots=GrantSlots())
     assert (dest / "report.json").is_file()
+    assert (dest / "integrity.json").is_file()
     assert (dest / "meta.json").is_file()
     meta = json.loads((dest / "meta.json").read_text(encoding="utf-8"))
     assert meta["stage"] == "done"

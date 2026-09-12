@@ -508,3 +508,62 @@ def test_audit_routes_log_http_request_with_audit_id(
         assert ans
         assert ans[-1].__dict__.get("path") == f"/v1/audits/{audit_id}/answers"
         assert ans[-1].__dict__.get("audit_id") == audit_id
+
+
+def test_content_routes_require_actor(tmp_path: Path, book: Path) -> None:
+    with api_client(tmp_path) as (client, _data, _bus):
+        posted = _post(client, book)
+        audit_id = posted.json()["audit_id"]
+        for suffix in ("layout", "mapping", "integrity"):
+            res = client.get(f"/v1/audits/{audit_id}/{suffix}")
+            assert res.status_code == 400
+            assert res.json()["error"] == "missing_actor"
+
+
+def test_content_routes_forbidden_and_not_ready(tmp_path: Path, book: Path) -> None:
+    with api_client(tmp_path) as (client, _data, _bus):
+        posted = _post(client, book, actor="alice")
+        audit_id = posted.json()["audit_id"]
+        for suffix, code in (
+            ("layout", "layout_not_ready"),
+            ("mapping", "mapping_not_ready"),
+            ("integrity", "integrity_not_ready"),
+        ):
+            forbidden = client.get(
+                f"/v1/audits/{audit_id}/{suffix}", headers={"X-Actor-Id": "bob"}
+            )
+            assert forbidden.status_code == 403
+            missing = client.get(
+                f"/v1/audits/{audit_id}/{suffix}", headers={"X-Actor-Id": "alice"}
+            )
+            assert missing.status_code == 409
+            assert missing.json()["error"] == code
+
+
+def test_content_routes_200_and_audit_lists_urls(tmp_path: Path, book: Path) -> None:
+    data = book.read_bytes()
+    sha = sha256_bytes(data)
+    audit_id = audit_id_for("u1", sha)
+    with api_client(tmp_path) as (client, data_root, _bus):
+        dest = data_root / "audits" / audit_id
+        _seed_report(dest, actor="u1", filename="m.xlsx", sha=sha)
+        write_json(dest / "layout.json", {"sheets": []})
+        write_json(dest / "mapping.json", {"rows": [], "questions": []})
+        write_json(dest / "integrity.json", {"findings": []})
+        layout = client.get(f"/v1/audits/{audit_id}/layout", headers={"X-Actor-Id": "u1"})
+        mapping = client.get(
+            f"/v1/audits/{audit_id}/mapping", headers={"X-Actor-Id": "u1"}
+        )
+        integrity = client.get(
+            f"/v1/audits/{audit_id}/integrity", headers={"X-Actor-Id": "u1"}
+        )
+        assert layout.status_code == 200
+        assert layout.json() == {"sheets": []}
+        assert mapping.status_code == 200
+        assert integrity.status_code == 200
+        status = client.get(f"/v1/audits/{audit_id}", headers={"X-Actor-Id": "u1"})
+        urls = status.json()["content"]
+        assert urls["layout"] == f"/v1/audits/{audit_id}/layout"
+        assert urls["mapping"] == f"/v1/audits/{audit_id}/mapping"
+        assert urls["integrity"] == f"/v1/audits/{audit_id}/integrity"
+        assert urls["report"] == f"/v1/audits/{audit_id}/report"

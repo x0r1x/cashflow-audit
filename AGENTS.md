@@ -22,9 +22,9 @@
 - GPU/веса в репозитории; LLM/embeddings внутри пода
 - второй под API / общий Redis вне sidecar (loopback)
 - UI, JWT, PDF, recalc Excel, исполнение VBA/XLM
-- правка `xlsx`, эндпоинт `/findings`, флаг `force`
+- правка `xlsx`, эндпоинт `/findings` (есть `/integrity` и `/report`, не live-полл), флаг `force`
 - `resume_from` у HITL (worker всегда `Pipeline.run` с parse)
-- сигналы FCF/DSCR; глобальный `cf:lock:pipeline`
+- изобретать DSCR/LLCR/PLCR без mapped-строки; глобальный `cf:lock:pipeline`
 - параллелить стадии **одного** аудита (`parse` ∥ `compile` запрещены)
 - шарить DuckDB-соединение между потоками / прогонами
 - `INCR` для inflight-слотов (только `SET` + `SCARD`)
@@ -65,7 +65,7 @@ src/cashflow_audit/
   api/  cli.py  app/pipeline.py  ports/
   adapters/openai_chat.py  openai_embed.py  redis_jobbus.py
   store/fs.py  ir/catalog.py
-  parse/  compile/  layout/  series/  mapping/  graph/  checkers/  explain/
+  parse/  compile/  layout/  series/  mapping/  graph/  checkers/  frs/  explain/
   ontology/taxonomy.yaml
 ```
 
@@ -82,11 +82,12 @@ src/cashflow_audit/
 | series | SQL outliers | detector как чекер |
 | mapping | concept_id, роль **статьи** | hist/forecast |
 | graph | SCC, BFS | текст |
-| checkers | `Candidate[]` | проза, HTTP, adapters |
-| explain | Finding из Candidate | новые refs/метрики/числа impact |
+| checkers | `Candidate[]` техника + identity | проза, HTTP, adapters, FRS |
+| frs | матрица F01–F14, `frs.json` | проза, HTTP, adapters |
+| explain | Finding; тонкий report + integrity | новые refs/метрики/числа impact |
 | adapters | OpenAI, redis-py | домен |
 
-`checkers` не импортирует `adapters` и `explain`.
+`checkers` не импортирует `adapters` и `explain`. `frs` не импортирует `adapters` и `explain`.
 
 Порты: `ChatPort`, `EmbedPort`, `AuditStore`, `JobBus`. SDK только в `adapters/`. CLI и HTTP → один `Pipeline.run()`.
 
@@ -98,7 +99,7 @@ src/cashflow_audit/
 | Query | DuckDB `:memory:` на **каждый** `Pipeline.run` | SQL по parquet; жизнь = run |
 | Durable | диск (PVC, не emptyDir) | xlsx, parquet, JSON стадий, `owner.json`, терминальный `meta.json` |
 
-Находки только в `report.json`. Ячейки только в parquet. Артефакты писать **tmp + rename**.
+Находки техники/identity — `integrity.json`. Итог FRS — тонкий `report.json`. Ячейки только в parquet. HTTP не отдаёт parquet, формулы, `cached_value`. Артефакты писать **tmp + rename**.
 
 `PortError` → не падать: шаблон / `degraded` / `needs_input`. Нет LLM/embeddings — аудит всё равно завершается.
 
@@ -120,7 +121,7 @@ src/cashflow_audit/
 
 Live: `queued` | `running`. `meta.json` — только терминал job. Live — Redis HASH.
 
-**HITL:** glossary += answers под `cf:lock:glossary:{actor_id}`; стереть `mapping.json`, `candidates.json`, `lineage.json`, `report.json`, `meta.json`; `XADD` только `audit_id`. IR не пересчитывать.
+**HITL:** glossary += answers под `cf:lock:glossary:{actor_id}`; стереть `mapping.json`, `candidates.json`, `lineage.json`, `frs.json`, `integrity.json`, `report.json`, `meta.json`; `XADD` только `audit_id`. IR не пересчитывать.
 
 **Рестарт:** Redis жив → `XAUTOCLAIM` idle > 60s. Под умер, диск цел → `XADD` каталогов с `owner.json` без `report.json`. GET: нет HASH, есть owner без report → `queued`, не `404`.
 
@@ -131,7 +132,7 @@ Retention: `AUDIT_TTL_DAYS` (default 14), не трогать `running`.
 
 ## 5. Стадии
 
-Порядок фиксирован: parse → compile → layout → series → mapping → check → lineage → explain+report.
+Порядок фиксирован: parse → compile → layout → series → mapping → check → frs → lineage → explain+report.
 
 Skip только если артефакт есть. Worker **всегда** стартует с parse; skip сам останавливается на первой дырке.
 
@@ -143,8 +144,9 @@ Skip только если артефакт есть. Worker **всегда** с
 | series | нет файла | всегда `CREATE VIEW` после layout |
 | mapping | `mapping.json` | **не** звать embed/LLM |
 | check | `candidates.json` | — |
+| frs | `frs.json` | — |
 | lineage | `lineage.json` | — |
-| explain+report | `report.json` + `meta.json` | **не** звать LLM |
+| explain+report | `report.json` + `integrity.json` + `meta.json` | **не** звать LLM |
 
 Не начинать стадию N+1, пока артефакт N есть **и** тесты N зелёные.
 
@@ -152,10 +154,11 @@ Skip только если артефакт есть. Worker **всегда** с
 
 - **parse:** zip-slip, depth 0, ratio ≥ 50×, part ≤ 512 МиБ, total ≤ 2 ГиБ; encryption → failed; VBA/XLM — флаги, не исполнять; external — строка, без ФС/HTTP. Не Finding.
 - **compile:** один `FormulaEngine`; локаль, не replace `;`→`,`; range → CSR с cap **2000** ячеек/ребро, иначе `truncated`. Дальше `formula_raw` не парсят.
-- **layout:** роль периода ≠ роль статьи. Имя листа — слабый признак. Check-row — метка, не находка.
+- **layout:** роль периода ≠ роль статьи. Имя листа — слабый признак. Check-row — метка, не находка. Месяц (`янв.25`, `Jan-25`, `2025-01`) → `period_key=YYYY-MM`, иначе месячный блок не создаётся.
 - **series:** majority template ≥ 70%, иначе ряд молчит; `mode([])` = не анализировать. Чекеры только `SELECT * FROM series_outliers`.
 - **mapping:** каскад normalize → glossary `(label, parent)` → cosine (top-1 ≥ 0.85 и отрыв ≥ 0.08) → ChatPort только ambiguous → иначе Question. `GMV` ≠ `pnl.revenue`. Chat/embed только после `try_slot`; нет слота — ждать `LLM_SLOT_WAIT_SEC` (default 120), не обходить; истекло — шаблон, статус может быть `degraded`.
-- **check:** дедуп `(detector, frozenset(cell_refs))`. IdentityResolver: нет concept → Question, не угадывать. Сигналы FCF/DSCR выкл.
+- **check:** дедуп `(detector, frozenset(cell_refs))`. IdentityResolver: нет concept → Question, не угадывать. Периоды по `period_key`, не по номеру колонки. I3a — rollforward от net CF / mapped `cf.fcf`, не `+CFO` (иначе capex даёт ложный error). `cell_refs` всех сторон равенства. `risk.*` здесь нет (это frs).
+- **frs:** закрытая матрица F01–F14 всегда; нет concept → `not_applicable` / `insufficient`, не HITL. FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (capex как в книге, без двойного минуса). DSCR только если есть mapped-строка. `ready_for_credit` ∈ {false, null}, никогда true. LLM не ставит статус F-строки.
 - **explain:** шаблон всегда полный. LLM только title / evidence / recommendation / `need_user_input`. `cited_refs` ⊆ вход, иначе шаблон. Не меняет detector, refs, metrics, числа impact. Drop находки без ref ∈ IR. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше `warning`.
 - **questions** = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)`.
 
@@ -225,14 +228,15 @@ uv run ruff check src tests
 |---|---|
 | parse | схема raw-ячейки; encryption → failed; zip-slip / bomb отвергнуты; VBA/XLM флаги, код не исполнен; external не ходит в ФС/HTTP; Finding нет |
 | compile | AST vs unparsed; типы рёбер `ref\|range\|cross_sheet\|external\|dynamic`; R1C1; INDIRECT/OFFSET → dynamic+unresolved; cap 2000 + `truncated`; `;` локали не ломает разбор |
-| layout | две оси на листе = два блока; hidden колонка не label; роль периода ≠ роли статьи; check-row не Finding |
+| layout | две оси на листе = два блока; hidden колонка не label; роль периода ≠ роли статьи; check-row не Finding; `янв.25` → `2025-01` |
 | series | нет файла-артефакта; majority < 70% → ряд молчит; `mode([])` skip; виды kind стабильны; чекер читает view, не считает majority сам |
 | mapping | skip при `mapping.json` → 0 вызовов embed/chat; glossary exact бьёт kNN; GMV не `pnl.revenue`; в промпте нет `cached_value`; нет слота → ждать, не обход; Question если ambiguous |
-| check | по детектору из плана — хотя бы один positive и один отрицательный (не-false-positive из §ложных срабатываний требований); дедуп; freeze severity; нет concept → Question I1, не Finding; FCF/DSCR не эмитятся |
+| check | по детектору из плана — хотя бы один positive и один отрицательный (не-false-positive из §ложных срабатываний требований); дедуп; freeze severity; нет concept → Question I1, не Finding; I3a не бьёт модель с capex при одном CFO; DSCR не эмитится без mapped-строки |
+| frs | матрица всегда 14 строк; пустой mapping → 14× NA, 0 findings; F04/F13 без FCF → insufficient, не выдуманный DSCR |
 | lineage | reverse BFS до output-concept; метрики карточки только отсюда; truncated range не притворяется полнотой |
 | explain | LLM не меняет detector/refs/metrics/impact; `cited_refs` ⊄ вход → шаблон; drop без ref ∈ IR; freeze не выше warning; questions union+дедуп |
 | pipeline | skip-таблица; HITL не трогает `owner.json` и IR; повторный run не зовёт LLM; `PortError` → не exception наружу; timeout отпускает слот |
-| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report 409 пока нет файла; статусный приоритет; probe 401 и model_missing → degraded; ping CLI без сети |
+| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report/integrity/layout/mapping 409 пока нет файла; нет `/findings`; статусный приоритет; probe 401 и model_missing → degraded; ping CLI без сети |
 
 Инварианты, которые ловить в нескольких слоях:
 
@@ -278,7 +282,7 @@ Private pack **вне git**. Подключать после заморозки 
 - «чекер импортнет openai, это же один вызов»
 - «тест на живой книге из Downloads»
 - «порог 0.85 подкручу по eval»
-- «FCF/DSCR заодно, в требованиях же есть»
+- «изобрету DSCR/LLCR без строки в mapping, в требованиях же есть»
 - «второй воркер-процесс с общим Redis, как в проде»
 
 Это нарушение плана, не ускорение.

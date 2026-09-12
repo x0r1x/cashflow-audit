@@ -38,3 +38,34 @@ def test_line_item_is_not_a_period() -> None:
     assert classify_header("Revenue") is None
     assert classify_header("Выручка") is None
     assert classify_header("GMV") is None
+
+
+def test_russian_month_dot_yy_is_period() -> None:
+    hit = classify_header("янв.25")
+    assert hit is not None
+    assert hit.period_key == "2025-01"
+    assert hit.role == "historical"
+
+
+def test_russian_month_dash_yy() -> None:
+    hit = classify_header("янв-25")
+    assert hit is not None
+    assert hit.period_key == "2025-01"
+
+
+def test_english_month_dash_yy() -> None:
+    hit = classify_header("Jan-25")
+    assert hit is not None
+    assert hit.period_key == "2025-01"
+
+
+def test_iso_year_month() -> None:
+    hit = classify_header("2025-01")
+    assert hit is not None
+    assert hit.period_key == "2025-01"
+    assert hit.role == "historical"
+
+
+def test_december_maps_to_12() -> None:
+    assert classify_header("дек.25").period_key == "2025-12"  # type: ignore[union-attr]
+    assert classify_header("Dec-25").period_key == "2025-12"  # type: ignore[union-attr]
