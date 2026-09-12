@@ -9,11 +9,16 @@ from cashflow_audit.frs.handlers import (
     handle_f02,
     handle_f03,
     handle_f04,
+    handle_f05,
     handle_f06,
     handle_f07,
     handle_f08,
+    handle_f09,
+    handle_f10,
     handle_f11,
+    handle_f12,
     handle_f13,
+    handle_f14,
 )
 from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
 from cashflow_audit.layout.models import Layout
@@ -26,11 +31,16 @@ HANDLERS: dict[str, Handler] = {
     "F02": handle_f02,
     "F03": handle_f03,
     "F04": handle_f04,
+    "F05": handle_f05,
     "F06": handle_f06,
     "F07": handle_f07,
     "F08": handle_f08,
+    "F09": handle_f09,
+    "F10": handle_f10,
     "F11": handle_f11,
+    "F12": handle_f12,
     "F13": handle_f13,
+    "F14": handle_f14,
 }
 
 
