@@ -178,6 +178,12 @@ async def get_audit(
     }
     if (dest / "report.json").exists() and status not in {"queued", "running"}:
         body["report_url"] = f"/v1/audits/{audit_id}/report"
+    content: dict[str, str] = {}
+    for name in ("layout", "mapping", "integrity", "report"):
+        if (dest / f"{name}.json").exists():
+            content[name] = f"/v1/audits/{audit_id}/{name}"
+    if content:
+        body["content"] = content
     headers = {}
     if status in {"queued", "running"}:
         headers["Retry-After"] = "2"
@@ -190,17 +196,42 @@ async def get_report(
     audit_id: str,
     x_actor_id: ActorHeader = None,
 ) -> JSONResponse:
-    actor = _actor(x_actor_id)
-    ctx = _ctx(request)
-    request.state.audit_id = audit_id
-    dest = ctx.store.dest_dir(audit_id)
-    _owner(dest, actor)
-    path = dest / "report.json"
-    if not path.exists():
-        status, stage, _error = await _resolve_status(ctx, dest, audit_id)
-        raise ApiError(409, "report_not_ready", status=status, stage=stage)
-    report = json.loads(path.read_text(encoding="utf-8"))
-    return JSONResponse(report, status_code=200)
+    return await _get_json_artifact(
+        request, audit_id, x_actor_id, "report.json", "report_not_ready"
+    )
+
+
+@router.get("/v1/audits/{audit_id}/layout")
+async def get_layout(
+    request: Request,
+    audit_id: str,
+    x_actor_id: ActorHeader = None,
+) -> JSONResponse:
+    return await _get_json_artifact(
+        request, audit_id, x_actor_id, "layout.json", "layout_not_ready"
+    )
+
+
+@router.get("/v1/audits/{audit_id}/mapping")
+async def get_mapping(
+    request: Request,
+    audit_id: str,
+    x_actor_id: ActorHeader = None,
+) -> JSONResponse:
+    return await _get_json_artifact(
+        request, audit_id, x_actor_id, "mapping.json", "mapping_not_ready"
+    )
+
+
+@router.get("/v1/audits/{audit_id}/integrity")
+async def get_integrity(
+    request: Request,
+    audit_id: str,
+    x_actor_id: ActorHeader = None,
+) -> JSONResponse:
+    return await _get_json_artifact(
+        request, audit_id, x_actor_id, "integrity.json", "integrity_not_ready"
+    )
 
 
 @router.post("/v1/audits/{audit_id}/answers")
@@ -243,6 +274,26 @@ async def post_answers(
         {"audit_id": audit_id, "status": "queued", "stage": "queued"},
         status_code=202,
     )
+
+
+async def _get_json_artifact(
+    request: Request,
+    audit_id: str,
+    x_actor_id: str | None,
+    filename: str,
+    missing: str,
+) -> JSONResponse:
+    actor = _actor(x_actor_id)
+    ctx = _ctx(request)
+    request.state.audit_id = audit_id
+    dest = ctx.store.dest_dir(audit_id)
+    _owner(dest, actor)
+    path = dest / filename
+    if not path.exists():
+        status, stage, _error = await _resolve_status(ctx, dest, audit_id)
+        raise ApiError(409, missing, status=status, stage=stage)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    return JSONResponse(payload, status_code=200)
 
 
 async def _resolve_status(

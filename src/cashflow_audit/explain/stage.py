@@ -27,8 +27,9 @@ def explain_workbook(
     embedding_model: str | None = None,
 ) -> Report:
     report_path = dest_dir / "report.json"
+    integrity_path = dest_dir / "integrity.json"
     meta_path = dest_dir / "meta.json"
-    if report_path.exists() and meta_path.exists():
+    if report_path.exists() and integrity_path.exists() and meta_path.exists():
         log_event(_LOGGER, logging.INFO, "stage_skip", "artifact exists", stage="explain")
         return Report.model_validate_json(report_path.read_text(encoding="utf-8"))
     t0 = time.monotonic()
@@ -67,6 +68,17 @@ def explain_workbook(
         slot_timeout_sec=slot_timeout_sec,
     )
     write_json(report_path, report.model_dump(mode="json"))
+    write_json(
+        integrity_path,
+        {
+            "findings": [
+                item.model_dump(mode="json")
+                for item in report.findings
+                if not item.detector.startswith("risk.")
+                and not item.detector.startswith("frs.")
+            ]
+        },
+    )
     write_json(
         meta_path,
         JobMeta(status=report.status, stage="done", error=None).model_dump(mode="json"),

@@ -52,6 +52,8 @@ def test_hitl_deletes_tail_keeps_owner_and_ir(tmp_path: Path, dest: Path) -> Non
     write_json(dest / "candidates.json", {"candidates": [], "questions": []})
     write_json(dest / "lineage.json", {"items": []})
     write_json(dest / "report.json", {"audit_id": dest.name, "findings": [], "questions": []})
+    write_json(dest / "integrity.json", {"findings": []})
+    write_json(dest / "frs.json", {"controls": []})
     write_json(dest / "meta.json", {"status": "needs_input", "stage": "done", "error": None})
 
     glossary_dir = tmp_path / "glossary"
@@ -70,6 +72,8 @@ def test_hitl_deletes_tail_keeps_owner_and_ir(tmp_path: Path, dest: Path) -> Non
     assert not (dest / "mapping.json").exists()
     assert not (dest / "candidates.json").exists()
     assert not (dest / "lineage.json").exists()
+    assert not (dest / "frs.json").exists()
+    assert not (dest / "integrity.json").exists()
     assert not (dest / "report.json").exists()
     assert not (dest / "meta.json").exists()
     loaded = load_glossary(glossary_dir / "u1.json")
