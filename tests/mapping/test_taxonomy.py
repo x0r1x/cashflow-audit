@@ -5,7 +5,7 @@ from cashflow_audit.mapping.taxonomy import load_taxonomy
 
 def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
     ids = {c.id for c in load_taxonomy()}
-    assert {"cf.fcf", "cf.repayment", "cf.drawdown"} <= ids
+    assert {"cf.fcf", "cf.repayment", "cf.drawdown", "pnl.interest_rate"} <= ids
 
 
 def test_fcf_labels_include_net_cf_before_financing() -> None:

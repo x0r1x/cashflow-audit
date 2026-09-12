@@ -17,6 +17,8 @@ concepts:
     labels: [D&A, Depreciation, Амортизация]
   - id: pnl.interest
     labels: [Interest expense, Проценты]
+  - id: pnl.interest_rate
+    labels: [Interest rate, Ставка процента, Coupon rate]
   - id: pnl.tax
     labels: [Income tax, Налог]
   - id: pnl.net_income
