@@ -11,6 +11,8 @@ I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
+I10_STOCK = ("bs.debt",)
+I10_FLOWS = ("cf.drawdown", "cf.repayment")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 
 
@@ -56,6 +58,15 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.da"],
             )
         )
+    qn = _maybe_question(questions, qn, "I10", I10_STOCK, book, ctx)
+    if "bs.debt" in book and not any(cid in book for cid in I10_FLOWS):
+        qn = _maybe_question(questions, qn, "I10", I10_FLOWS, book, ctx)
+    for group in _groups(by_block, book, I10_STOCK):
+        draw = group.get("cf.drawdown") or book.get("cf.drawdown")
+        repay = group.get("cf.repayment") or book.get("cf.repayment")
+        if draw is None and repay is None:
+            continue
+        candidates.extend(_i10(ctx, group["bs.debt"], draw, repay))
     return candidates, questions
 
 
@@ -271,6 +282,55 @@ def _i3b(
                 detector="identity.I3b",
                 cell_refs=refs,
                 payload={"col": cur_cols[0], "period_key": key},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i10(
+    ctx: CheckContext,
+    debt: MappedRow,
+    draw: MappedRow | None,
+    repay: MappedRow | None,
+) -> list[Candidate]:
+    slots = _aligned(ctx, debt)
+    draw_cols = _axis_cols(ctx, draw) if draw is not None else {}
+    repay_cols = _axis_cols(ctx, repay) if repay is not None else {}
+    found: list[Candidate] = []
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        opening = _value(ctx, debt, prev_cols[0])
+        closing = _value(ctx, debt, cur_cols[0])
+        drawn = 0.0
+        repaid = 0.0
+        if draw is not None and key in draw_cols:
+            part = _value(ctx, draw, draw_cols[key])
+            if part is None:
+                continue
+            drawn = part
+        if repay is not None and key in repay_cols:
+            part = _value(ctx, repay, repay_cols[key])
+            if part is None:
+                continue
+            repaid = part
+        if opening is None or closing is None:
+            continue
+        expected = opening + drawn - repaid
+        thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
+        if abs(closing - expected) <= thresh:
+            continue
+        refs = [_cell_ref(debt, prev_cols[0]), _cell_ref(debt, cur_cols[0])]
+        if draw is not None and key in draw_cols:
+            refs.append(_cell_ref(draw, draw_cols[key]))
+        if repay is not None and key in repay_cols:
+            refs.append(_cell_ref(repay, repay_cols[key]))
+        found.append(
+            Candidate(
+                detector="identity.I10",
+                cell_refs=refs,
+                payload={"col": cur_cols[0], "period_key": key, "delta": closing - expected},
                 base_severity="error",
             )
         )
