@@ -21,6 +21,8 @@ concepts:
     labels: [Interest rate, Ставка процента, Coupon rate]
   - id: pnl.tax
     labels: [Income tax, Налог]
+  - id: pnl.tax_rate
+    labels: [Tax rate, Ставка налога, Effective tax rate]
   - id: pnl.net_income
     labels: [Net income, Чистая прибыль]
   - id: bs.assets_total
