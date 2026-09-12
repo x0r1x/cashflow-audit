@@ -875,3 +875,100 @@ def test_i9_without_da_or_wc_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I9"]
     assert any("I9" in (q.prompt or "") for q in result.questions)
+
+
+def test_i11_interest_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Interest"),
+            LayoutRow(row=4, label="Rate"),
+        ],
+        sheet="M",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("M", 2, "Debt", "bs.debt", role="output"),
+            mapped("M", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("M", 4, "Rate", "pnl.interest_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("M", "B2", "100"),
+                cell("M", "C2", "100"),
+                cell("M", "B3", "12"),
+                cell("M", "C3", "7"),
+                cell("M", "B4", "0.12"),
+                cell("M", "C4", "0.12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I11"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "M!C3" in found[0].cell_refs
+    assert "M!C4" in found[0].cell_refs
+
+
+def test_i11_percent_rate_and_average_debt_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Interest"),
+            LayoutRow(row=4, label="Rate"),
+        ],
+        sheet="M",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("M", 2, "Debt", "bs.debt", role="output"),
+            mapped("M", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("M", 4, "Rate", "pnl.interest_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("M", "B2", "100"),
+                cell("M", "C2", "100"),
+                cell("M", "C3", "12"),
+                cell("M", "C4", "12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I11"]
+
+
+def test_i11_without_rate_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Debt"), LayoutRow(row=3, label="Interest")],
+        sheet="M",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("M", 2, "Debt", "bs.debt", role="output"),
+            mapped("M", 3, "Interest", "pnl.interest", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("M", "B2", "100"),
+                cell("M", "C2", "100"),
+                cell("M", "C3", "12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I11"]
+    assert any("I11" in (q.prompt or "") for q in result.questions)

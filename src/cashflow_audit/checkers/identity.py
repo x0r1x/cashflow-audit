@@ -15,6 +15,7 @@ I9_NEED = ("pnl.net_income", "cf.cfo")
 I9_NICE = ("pnl.da", "bs.ar", "bs.inventory", "bs.ap")
 I10_STOCK = ("bs.debt",)
 I10_FLOWS = ("cf.drawdown", "cf.repayment")
+I11_CONCEPTS = ("pnl.interest", "bs.debt", "pnl.interest_rate")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 
 
@@ -90,6 +91,16 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         if draw is None and repay is None:
             continue
         candidates.extend(_i10(ctx, group["bs.debt"], draw, repay))
+    qn = _maybe_question(questions, qn, "I11", I11_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I11_CONCEPTS):
+        candidates.extend(
+            _i11(
+                ctx,
+                group["pnl.interest"],
+                group["bs.debt"],
+                group["pnl.interest_rate"],
+            )
+        )
     return candidates, questions
 
 
@@ -426,6 +437,49 @@ def _stock_delta(
     if before is None or after is None:
         return None, []
     return after - before, [_cell_ref(row, cols[prev_key]), _cell_ref(row, cols[key])]
+
+
+def _i11(
+    ctx: CheckContext,
+    interest: MappedRow,
+    debt: MappedRow,
+    rate: MappedRow,
+) -> list[Candidate]:
+    slots = _aligned(ctx, interest, debt, rate)
+    found: list[Candidate] = []
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        got = _value(ctx, interest, cur_cols[0])
+        opening = _value(ctx, debt, prev_cols[1])
+        closing = _value(ctx, debt, cur_cols[1])
+        raw_rate = _value(ctx, rate, cur_cols[2])
+        if got is None or opening is None or closing is None or raw_rate is None:
+            continue
+        expected = _as_rate(raw_rate) * (abs(opening) + abs(closing)) / 2.0
+        thresh = max(1.0, 0.001 * max(abs(got), abs(expected)))
+        if abs(abs(got) - abs(expected)) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I11",
+                cell_refs=[
+                    _cell_ref(interest, cur_cols[0]),
+                    _cell_ref(debt, prev_cols[1]),
+                    _cell_ref(debt, cur_cols[1]),
+                    _cell_ref(rate, cur_cols[2]),
+                ],
+                payload={"col": cur_cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _as_rate(raw: float) -> float:
+    if abs(raw) > 1.0:
+        return raw / 100.0
+    return raw
 
 
 _ROLE_RANK = {"historical": 0, "stub": 1, "forecast": 2}
