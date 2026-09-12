@@ -13,7 +13,7 @@
 ```mermaid
 flowchart LR
   xlsx["xlsx / xlsm"] --> parse --> compile --> layout --> series
-  series --> mapping --> check --> lineage --> report["report.json"]
+  series --> mapping --> check --> frs --> lineage --> report["report.json"]
 ```
 
 ## Быстрый старт
@@ -36,7 +36,7 @@ uv run cashflow-audit audit ./model.xlsx -o ./report.json
 | Кто вы | HTTP: заголовок `X-Actor-Id`. CLI: `anonymous` |
 | Модели | Необязательно. Нет LLM — отчёт шаблонный |
 
-Снаружи два объекта: **статус задания** и **отчёт** (`findings` + `questions`). Промежуточные parquet по HTTP не отдаём. Рекомендация в карточке не предлагает править книгу.
+Снаружи: **статус задания** и контент по шагам — `GET /report` (матрица FRS), `/integrity`, `/layout`, `/mapping`. Промежуточные parquet по HTTP не отдаём. Рекомендация в карточке не предлагает править книгу.
 
 `audit_id` = sha256(кто вы + «:» + sha256 файла). Разные люди с одним файлом — разные аудиты.
 
