@@ -1064,3 +1064,91 @@ def test_i12_without_rate_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I12"]
     assert any("I12" in (q.prompt or "") for q in result.questions)
+
+
+def test_i8_da_addback_mismatch_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A add-back")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+            mapped("CF", 2, "D&A add-back", "cf.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("CF", "B2", "5"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I8"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "CF!B2" in found[0].cell_refs
+
+
+def test_i8_opposite_sign_same_magnitude_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A add-back")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+            mapped("CF", 2, "D&A add-back", "cf.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("CF", "B2", "-10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8"]
+
+
+def test_i8_without_cf_addback_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="D&A")],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "D&A", "pnl.da", role="calculation")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "10")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8"]
+    assert any("I8" in (q.prompt or "") for q in result.questions)

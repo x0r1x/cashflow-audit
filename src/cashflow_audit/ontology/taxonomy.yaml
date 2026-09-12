@@ -47,6 +47,8 @@ concepts:
     labels: [Retained earnings, Нераспределённая прибыль]
   - id: cf.cfo
     labels: [CFO, Cash from operations]
+  - id: cf.da
+    labels: [D&A add-back, Depreciation add-back, Амортизация (ОДДС)]
   - id: cf.capex
     labels: [CAPEX, Capital expenditure]
   - id: cf.dividends
