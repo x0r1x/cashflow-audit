@@ -114,3 +114,18 @@ def test_check_row_is_marker_not_finding() -> None:
     dumped = layout.model_dump()
     assert "findings" not in dumped
     assert "candidates" not in dumped
+
+
+def test_monthly_headers_form_a_period_axis() -> None:
+    cells = [
+        _c("CF", "A1", "Item"),
+        _c("CF", "B1", "янв.25"),
+        _c("CF", "C1", "фев.25"),
+        _c("CF", "A2", "Cash"),
+        _c("CF", "B2", "100"),
+        _c("CF", "C2", "90"),
+    ]
+    layout = detect_layout(cells)
+    block = layout.sheets[0].blocks[0]
+    keys = [h.period_key for h in block.axis.headers]
+    assert keys == ["2025-01", "2025-02"]

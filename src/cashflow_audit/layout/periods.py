@@ -20,6 +20,61 @@ _SCENARIO = re.compile(
 _FACT = re.compile(r"^(факт\w*|actual|hist(?:orical)?)$", re.IGNORECASE)
 _PLAN = re.compile(r"^(план\w*|прогноз\w*|forecast|budget)$", re.IGNORECASE)
 _FORECAST_SFX = {"E", "F", "P", "Е", "П"}
+_ISO_YM = re.compile(r"^((?:19|20)\d{2})-(\d{2})([EFAPеЕфФпП])?$")
+_NAMED_MONTH = re.compile(
+    r"^([A-Za-zА-Яа-яёЁ]+)\.?\s*[-/.]?\s*((?:19|20)\d{2}|\d{2})([EFAPеЕфФпП])?$",
+    re.IGNORECASE,
+)
+_MONTH_NUM = {
+    "янв": 1,
+    "январ": 1,
+    "фев": 2,
+    "феврал": 2,
+    "мар": 3,
+    "март": 3,
+    "апр": 4,
+    "апрел": 4,
+    "май": 5,
+    "мая": 5,
+    "июн": 6,
+    "июня": 6,
+    "июл": 7,
+    "июля": 7,
+    "авг": 8,
+    "август": 8,
+    "сен": 9,
+    "сентябр": 9,
+    "окт": 10,
+    "октябр": 10,
+    "ноя": 11,
+    "ноябр": 11,
+    "дек": 12,
+    "декабр": 12,
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
 
 
 def classify_header(text: str | None) -> PeriodHit | None:
@@ -38,6 +93,17 @@ def classify_header(text: str | None) -> PeriodHit | None:
         return PeriodHit(role="historical", period_key="actual")
     if _PLAN.fullmatch(raw):
         return PeriodHit(role="forecast", period_key="plan")
+    iso = _ISO_YM.fullmatch(raw)
+    if iso:
+        month = int(iso.group(2))
+        if 1 <= month <= 12:
+            return PeriodHit(
+                role=_suffix_role(iso.group(3)),
+                period_key=f"{iso.group(1)}-{month:02d}",
+            )
+    named = _month_hit(raw)
+    if named is not None:
+        return named
     quarter = _QUARTER_RU.fullmatch(raw) or _QUARTER_EN.fullmatch(raw)
     if quarter:
         q, year, sfx = quarter.group(1), quarter.group(2), quarter.group(3)
@@ -50,6 +116,38 @@ def classify_header(text: str | None) -> PeriodHit | None:
     if as_year:
         return PeriodHit(role="historical", period_key=as_year.group(1))
     return None
+
+
+def _month_hit(raw: str) -> PeriodHit | None:
+    match = _NAMED_MONTH.fullmatch(raw)
+    if match is None:
+        return None
+    month = _month_number(match.group(1))
+    if month is None:
+        return None
+    year = _full_year(match.group(2))
+    return PeriodHit(
+        role=_suffix_role(match.group(3)),
+        period_key=f"{year}-{month:02d}",
+    )
+
+
+def _month_number(token: str) -> int | None:
+    stem = token.lower().replace("ё", "е").rstrip(".")
+    found: int | None = None
+    best = 0
+    for name, num in _MONTH_NUM.items():
+        if stem == name or stem.startswith(name):
+            if len(name) > best:
+                found = num
+                best = len(name)
+    return found
+
+
+def _full_year(raw: str) -> str:
+    if len(raw) == 2:
+        return f"20{raw}"
+    return raw
 
 
 def _suffix_role(suffix: str | None) -> ColumnRole:
