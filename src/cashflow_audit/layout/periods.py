@@ -19,6 +19,10 @@ _SCENARIO = re.compile(
 )
 _FACT = re.compile(r"^(факт\w*|actual|hist(?:orical)?)$", re.IGNORECASE)
 _PLAN = re.compile(r"^(план\w*|прогноз\w*|forecast|budget)$", re.IGNORECASE)
+_TAG = re.compile(
+    r"^(.*?)\s+(факт\w*|actual|hist(?:orical)?|план\w*|прогноз\w*|forecast|budget)$",
+    re.IGNORECASE,
+)
 _FORECAST_SFX = {"E", "F", "P", "Е", "П"}
 _ISO_YM = re.compile(r"^((?:19|20)\d{2})-(\d{2})([EFAPеЕфФпП])?$")
 _NAMED_MONTH = re.compile(
@@ -93,6 +97,9 @@ def classify_header(text: str | None) -> PeriodHit | None:
         return PeriodHit(role="historical", period_key="actual")
     if _PLAN.fullmatch(raw):
         return PeriodHit(role="forecast", period_key="plan")
+    tagged = _tagged_hit(raw)
+    if tagged is not None:
+        return tagged
     iso = _ISO_YM.fullmatch(raw)
     if iso:
         month = int(iso.group(2))
@@ -110,12 +117,23 @@ def classify_header(text: str | None) -> PeriodHit | None:
         return PeriodHit(role=_suffix_role(sfx), period_key=f"{year}Q{q}")
     year = _YEAR.fullmatch(raw)
     if year:
-        key = year.group(1) + (year.group(2) or "")
-        return PeriodHit(role=_suffix_role(year.group(2)), period_key=key)
+        return PeriodHit(role=_suffix_role(year.group(2)), period_key=year.group(1))
     as_year = _YEAR_FLOAT.fullmatch(raw)
     if as_year:
         return PeriodHit(role="historical", period_key=as_year.group(1))
     return None
+
+
+def _tagged_hit(raw: str) -> PeriodHit | None:
+    match = _TAG.fullmatch(raw)
+    if match is None:
+        return None
+    base = classify_header(match.group(1).strip())
+    if base is None or base.role not in {"historical", "forecast", "stub"}:
+        return None
+    tag = match.group(2)
+    role: ColumnRole = "historical" if _FACT.fullmatch(tag) else "forecast"
+    return PeriodHit(role=role, period_key=base.period_key)
 
 
 def _month_hit(raw: str) -> PeriodHit | None:

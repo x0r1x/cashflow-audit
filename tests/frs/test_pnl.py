@@ -37,6 +37,52 @@ def test_f01_forecast_revenue_drop_is_flagged() -> None:
     assert any(i.control_id == "F01" for i in doc.issues)
 
 
+def test_f01_plan_fact_gap_is_flagged() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=headers(
+            (2, "2023", "historical"),
+            (3, "2024", "historical"),
+            (4, "2024", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "100"),
+            cell("P&L", "D2", "80"),
+        ],
+    )
+    row = _control(doc, "F01")
+    assert row.status == "flagged"
+    assert "P&L!C2" in row.cell_refs
+    assert "P&L!D2" in row.cell_refs
+
+
+def test_f01_plan_fact_within_band_is_clear() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=headers(
+            (2, "2024", "historical"),
+            (3, "2024", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[cell("P&L", "B2", "100"), cell("P&L", "C2", "105")],
+    )
+    assert _control(doc, "F01").status == "clear"
+
+
 def test_f01_growth_is_clear() -> None:
     layout = simple_layout([LayoutRow(row=2, label="Revenue")])
     mapping = MappingDocument(

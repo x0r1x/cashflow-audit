@@ -14,7 +14,25 @@ def test_year_with_e_is_forecast() -> None:
     hit = classify_header("2025E")
     assert hit is not None
     assert hit.role == "forecast"
-    assert hit.period_key == "2025E"
+    assert hit.period_key == "2025"
+
+
+def test_year_fact_plan_share_calendar_key() -> None:
+    fact = classify_header("2024 факт")
+    plan = classify_header("2024 план")
+    assert fact is not None and plan is not None
+    assert fact.period_key == plan.period_key == "2024"
+    assert fact.role == "historical"
+    assert plan.role == "forecast"
+
+
+def test_month_fact_plan_share_calendar_key() -> None:
+    fact = classify_header("янв.25 факт")
+    plan = classify_header("янв.25 план")
+    assert fact is not None and plan is not None
+    assert fact.period_key == plan.period_key == "2025-01"
+    assert fact.role == "historical"
+    assert plan.role == "forecast"
 
 
 def test_russian_quarter_is_period() -> None:
