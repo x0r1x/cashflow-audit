@@ -55,6 +55,9 @@ def test_skip_second_run_does_not_call_llm(tmp_path: Path, dest: Path) -> None:
     first_chat, first_embed = FakeChat(), FakeEmbed()
     Pipeline(chat=first_chat, embed=first_embed, slots=GrantSlots()).run(source, dest)
     assert (dest / "report.json").is_file()
+    assert (dest / "frs.json").is_file()
+    controls = json.loads((dest / "frs.json").read_text(encoding="utf-8"))["controls"]
+    assert len(controls) == 14
     second_chat, second_embed = FakeChat(), FakeEmbed()
     Pipeline(chat=second_chat, embed=second_embed, slots=GrantSlots()).run(source, dest)
     assert second_chat.calls == 0
