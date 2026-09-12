@@ -5,6 +5,7 @@ from cashflow_audit.frs.context import (
     book_totals,
     cell_ref,
     cell_value,
+    header_roles,
     month_slots,
     period_role,
     value_at,
@@ -35,6 +36,27 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     row = book_totals(ctx).get("pnl.revenue")
     if row is None:
         return _na(spec_id, name), None
+    by_key: dict[str, dict[str, int]] = {}
+    for key, role, col in header_roles(ctx, row):
+        by_key.setdefault(key, {})[role] = col
+    for key, roles in by_key.items():
+        hist_col, fcst_col = roles.get("historical"), roles.get("forecast")
+        if hist_col is None or fcst_col is None:
+            continue
+        actual = cell_value(ctx, row, hist_col)
+        plan = cell_value(ctx, row, fcst_col)
+        if actual is None or plan is None or actual == 0.0:
+            continue
+        change = plan / actual - 1.0
+        if abs(change) >= YOY_DROP:
+            return _finish(
+                spec_id,
+                name,
+                [cell_ref(row, hist_col), cell_ref(row, fcst_col)],
+                {"change": change, "period_key": key},
+                "assumptions",
+                "low",
+            )
     slots = year_slots(ctx, row)
     flagged_refs: list[str] = []
     metrics: dict = {}

@@ -73,6 +73,20 @@ def value_at(ctx: FrsCtx, concept: str, key: str) -> tuple[float | None, str | N
     return cell_value(ctx, row, col), cell_ref(row, col)
 
 
+def header_roles(ctx: FrsCtx, row: MappedRow) -> list[tuple[str, str, int]]:
+    if ctx.layout is None:
+        return []
+    found: list[tuple[str, str, int]] = []
+    for sheet in ctx.layout.sheets:
+        for block in sheet.blocks:
+            if sheet.name != row.sheet or block.block_id != row.block_id:
+                continue
+            for header in block.axis.headers:
+                if header.role in {"historical", "forecast", "stub"}:
+                    found.append((header.period_key, header.role, header.col))
+    return found
+
+
 def period_role(ctx: FrsCtx, row: MappedRow, key: str) -> str | None:
     if ctx.layout is None:
         return None

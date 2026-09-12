@@ -129,3 +129,18 @@ def test_monthly_headers_form_a_period_axis() -> None:
     block = layout.sheets[0].blocks[0]
     keys = [h.period_key for h in block.axis.headers]
     assert keys == ["2025-01", "2025-02"]
+
+
+def test_plan_fact_headers_share_period_key() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "2024 факт"),
+        _c("P&L", "C1", "2024 план"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "100"),
+        _c("P&L", "C2", "80"),
+    ]
+    layout = detect_layout(cells)
+    headers = layout.sheets[0].blocks[0].axis.headers
+    assert [h.period_key for h in headers] == ["2024", "2024"]
+    assert [h.role for h in headers] == ["historical", "forecast"]

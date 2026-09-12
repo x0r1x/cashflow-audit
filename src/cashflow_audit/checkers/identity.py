@@ -277,15 +277,24 @@ def _i3b(
     return found
 
 
+_ROLE_RANK = {"historical": 0, "stub": 1, "forecast": 2}
+
+
 def _axis_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     found: dict[str, int] = {}
+    rank: dict[str, int] = {}
     for sheet in ctx.layout.sheets:
         for block in sheet.blocks:
             if sheet.name != row.sheet or block.block_id != row.block_id:
                 continue
             for header in block.axis.headers:
-                if header.role in _IDENTITY_PERIOD_ROLES:
-                    found[header.period_key] = header.col
+                if header.role not in _IDENTITY_PERIOD_ROLES:
+                    continue
+                key = header.period_key
+                weight = _ROLE_RANK.get(header.role, 9)
+                if key not in rank or weight < rank[key]:
+                    found[key] = header.col
+                    rank[key] = weight
     return found
 
 

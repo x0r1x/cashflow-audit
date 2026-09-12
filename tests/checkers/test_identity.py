@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from cashflow_audit.checkers.run import run_checks
+from cashflow_audit.layout.detect import detect_layout
 from cashflow_audit.layout.models import Axis, Block, Layout, LayoutRow, SheetLayout
 from cashflow_audit.mapping.models import MappingDocument
 from tests.checkers.conftest import cell, ctx, headers, mapped, simple_layout
@@ -257,6 +258,44 @@ def test_i3a_aligns_periods_by_key_not_column() -> None:
     found = [c for c in result.candidates if c.detector == "identity.I3a"]
     assert found
     assert found[0].cell_refs == ["BS!B2", "BS!C2", "CF!F3"]
+
+
+def test_i3a_joins_plain_year_to_e_suffix() -> None:
+    layout = detect_layout(
+        [
+            cell("BS", "A1", "Item"),
+            cell("BS", "B1", "2024"),
+            cell("BS", "C1", "2025"),
+            cell("BS", "A2", "Cash"),
+            cell("BS", "B2", "100"),
+            cell("BS", "C2", "130"),
+            cell("CF", "A1", "Item"),
+            cell("CF", "B1", "2024E"),
+            cell("CF", "C1", "2025E"),
+            cell("CF", "A2", "FCF"),
+            cell("CF", "B2", "10"),
+            cell("CF", "C2", "10"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 2, "FCF", "cf.fcf", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "130"),
+                cell("CF", "B2", "10"),
+                cell("CF", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert [c for c in result.candidates if c.detector == "identity.I3a"]
 
 
 def test_i3b_without_re_concept_is_question() -> None:
