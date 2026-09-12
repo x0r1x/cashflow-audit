@@ -16,6 +16,7 @@ I9_NICE = ("pnl.da", "bs.ar", "bs.inventory", "bs.ap")
 I10_STOCK = ("bs.debt",)
 I10_FLOWS = ("cf.drawdown", "cf.repayment")
 I11_CONCEPTS = ("pnl.interest", "bs.debt", "pnl.interest_rate")
+I12_CONCEPTS = ("pnl.tax", "pnl.net_income", "pnl.tax_rate")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 
 
@@ -99,6 +100,16 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.interest"],
                 group["bs.debt"],
                 group["pnl.interest_rate"],
+            )
+        )
+    qn = _maybe_question(questions, qn, "I12", I12_CONCEPTS, book, ctx)
+    for group in _groups(by_block, book, I12_CONCEPTS):
+        candidates.extend(
+            _i12(
+                ctx,
+                group["pnl.tax"],
+                group["pnl.net_income"],
+                group["pnl.tax_rate"],
             )
         )
     return candidates, questions
@@ -470,6 +481,38 @@ def _i11(
                     _cell_ref(rate, cur_cols[2]),
                 ],
                 payload={"col": cur_cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i12(
+    ctx: CheckContext,
+    tax: MappedRow,
+    ni: MappedRow,
+    rate: MappedRow,
+) -> list[Candidate]:
+    found: list[Candidate] = []
+    for key, cols in _aligned(ctx, tax, ni, rate):
+        got = _value(ctx, tax, cols[0])
+        income = _value(ctx, ni, cols[1])
+        raw_rate = _value(ctx, rate, cols[2])
+        if got is None or income is None or raw_rate is None:
+            continue
+        expected = _as_rate(raw_rate) * (abs(income) + abs(got))
+        thresh = max(1.0, 0.001 * max(abs(got), abs(expected)))
+        if abs(abs(got) - abs(expected)) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I12",
+                cell_refs=[
+                    _cell_ref(tax, cols[0]),
+                    _cell_ref(ni, cols[1]),
+                    _cell_ref(rate, cols[2]),
+                ],
+                payload={"col": cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
                 base_severity="error",
             )
         )

@@ -972,3 +972,95 @@ def test_i11_without_rate_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I11"]
     assert any("I11" in (q.prompt or "") for q in result.questions)
+
+
+def test_i12_tax_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Tax"),
+            LayoutRow(row=3, label="NI"),
+            LayoutRow(row=4, label="Rate"),
+        ],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Tax", "pnl.tax", role="calculation"),
+            mapped("P&L", 3, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 4, "Rate", "pnl.tax_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "14"),
+                cell("P&L", "B3", "86"),
+                cell("P&L", "B4", "0.25"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I12"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B4" in found[0].cell_refs
+
+
+def test_i12_percent_rate_and_balanced_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Tax"),
+            LayoutRow(row=3, label="NI"),
+            LayoutRow(row=4, label="Rate"),
+        ],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Tax", "pnl.tax", role="calculation"),
+            mapped("P&L", 3, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 4, "Rate", "pnl.tax_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "25"),
+                cell("P&L", "B3", "75"),
+                cell("P&L", "B4", "25"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I12"]
+
+
+def test_i12_without_rate_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Tax"), LayoutRow(row=3, label="NI")],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Tax", "pnl.tax", role="calculation"),
+            mapped("P&L", 3, "NI", "pnl.net_income", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "25"),
+                cell("P&L", "B3", "75"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I12"]
+    assert any("I12" in (q.prompt or "") for q in result.questions)

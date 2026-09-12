@@ -25,6 +25,7 @@ TRUST_DETECTORS = frozenset(
         "identity.I9",
         "identity.I10",
         "identity.I11",
+        "identity.I12",
         "excel_error",
         "error_masking",
         "circular",
