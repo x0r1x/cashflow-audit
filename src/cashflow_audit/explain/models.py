@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
+from cashflow_audit.frs.models import ControlResult, FrsIssue
 from cashflow_audit.mapping.models import MappingQuestion
 
 Severity = Literal["error", "warning", "risk"]
@@ -58,6 +59,27 @@ class Provenance(BaseModel):
     embedding_model: str | None = None
 
 
+class Verdict(BaseModel):
+    integrity: str = ""
+    trends: str = ""
+    risks: str = ""
+    liquidity: str = ""
+    recommendation: str = ""
+    ready_for_credit: bool | None = None
+
+    @field_validator("ready_for_credit")
+    @classmethod
+    def _never_true(cls, value: bool | None) -> bool | None:
+        if value is True:
+            return False
+        return value
+
+
+class Positive(BaseModel):
+    control_id: str
+    text: str
+
+
 class Report(BaseModel):
     audit_id: str
     source_filename: str
@@ -70,6 +92,10 @@ class Report(BaseModel):
     conclusions: list[Conclusion] = Field(default_factory=list)
     questions: list[MappingQuestion] = Field(default_factory=list)
     provenance: Provenance = Field(default_factory=Provenance)
+    risk_screen: list[ControlResult] = Field(default_factory=list)
+    issues: list[FrsIssue] = Field(default_factory=list)
+    positives: list[Positive] = Field(default_factory=list)
+    verdict: Verdict = Field(default_factory=Verdict)
 
 
 class JobMeta(BaseModel):

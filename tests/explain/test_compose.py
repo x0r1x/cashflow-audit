@@ -56,6 +56,25 @@ def test_template_is_always_complete() -> None:
     assert "не изменён" in rec or "не изменен" in rec
 
 
+def test_chat_skips_excel_error_cards() -> None:
+    chat = FakeChat(
+        payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
+    )
+    report = compose_report(
+        candidates=[_cand()],
+        lineage=LineageDocument(items=[_lin()]),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2", "P&L!C3"},
+        chat=chat,
+        slots=GrantSlots(),
+    )
+    assert chat.calls == 0
+    assert report.status == "succeeded"
+    assert report.findings[0].detector == "excel_error"
+    assert report.verdict.ready_for_credit is False
+
+
 def test_configured_chat_without_findings_is_succeeded() -> None:
     chat = FakeChat(
         payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
@@ -90,7 +109,7 @@ def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
         }
     )
     report = compose_report(
-        candidates=[_cand(payload={"delta": 1200})],
+        candidates=[_cand(detector="frs.F04", payload={"delta": 1200})],
         lineage=LineageDocument(
             items=[
                 _lin(
@@ -106,7 +125,7 @@ def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
         slots=GrantSlots(),
     )
     finding = report.findings[0]
-    assert finding.detector == "excel_error"
+    assert finding.detector == "frs.F04"
     assert finding.cell_refs == ["P&L!B2"]
     assert finding.affected_metrics == ["pnl.ebitda"]
     assert "1200" in finding.impact
@@ -125,8 +144,8 @@ def test_cited_refs_outside_input_falls_back_to_template() -> None:
         }
     )
     report = compose_report(
-        candidates=[_cand()],
-        lineage=LineageDocument(items=[_lin()]),
+        candidates=[_cand(detector="frs.F04")],
+        lineage=LineageDocument(items=[_lin(detector="frs.F04")]),
         mapping=MappingDocument(),
         check=CheckDocument(),
         ir_refs={"P&L!B2", "P&L!C3"},
@@ -234,8 +253,8 @@ def test_denied_slot_does_not_call_chat_and_uses_template(caplog) -> None:
     )
     caplog.set_level(logging.INFO, logger="cashflow_audit")
     report = compose_report(
-        candidates=[_cand()],
-        lineage=LineageDocument(items=[_lin()]),
+        candidates=[_cand(detector="frs.F04")],
+        lineage=LineageDocument(items=[_lin(detector="frs.F04")]),
         mapping=MappingDocument(),
         check=CheckDocument(),
         ir_refs={"P&L!B2", "P&L!C3"},
@@ -261,8 +280,8 @@ def test_chat_port_error_logs_port_fallback(caplog) -> None:
 
     caplog.set_level(logging.INFO, logger="cashflow_audit")
     report = compose_report(
-        candidates=[_cand()],
-        lineage=LineageDocument(items=[_lin()]),
+        candidates=[_cand(detector="frs.F04")],
+        lineage=LineageDocument(items=[_lin(detector="frs.F04")]),
         mapping=MappingDocument(),
         check=CheckDocument(),
         ir_refs={"P&L!B2", "P&L!C3"},
@@ -291,13 +310,13 @@ def test_explain_stops_llm_when_budget_exhausted() -> None:
     )
     report = compose_report(
         candidates=[
-            _cand(),
-            _cand(cell_refs=["P&L!C2"], detector="hidden_input"),
+            _cand(detector="frs.F04"),
+            _cand(cell_refs=["P&L!C2"], detector="frs.F08"),
         ],
         lineage=LineageDocument(
             items=[
-                _lin(0),
-                _lin(1, detector="hidden_input", cell_refs=["P&L!C2"], path_refs=["P&L!C2"]),
+                _lin(0, detector="frs.F04"),
+                _lin(1, detector="frs.F08", cell_refs=["P&L!C2"], path_refs=["P&L!C2"]),
             ]
         ),
         mapping=MappingDocument(),

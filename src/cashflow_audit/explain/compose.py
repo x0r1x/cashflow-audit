@@ -13,6 +13,8 @@ from cashflow_audit.explain.models import (
     ReportSummary,
 )
 from cashflow_audit.explain.template import impact_text, template_card
+from cashflow_audit.explain.verdict import build_positives, build_verdict
+from cashflow_audit.frs.models import FrsDocument
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
 from cashflow_audit.observability import log_event
@@ -42,7 +44,9 @@ def compose_report(
     llm_model: str | None = None,
     embedding_model: str | None = None,
     slot_timeout_sec: float = 0.0,
+    frs: FrsDocument | None = None,
 ) -> Report:
+    screen = frs or FrsDocument(controls=[], issues=[])
     lin_by_index = {item.candidate_index: item for item in lineage.items}
     kept: list[tuple[int, Candidate, LineageItem]] = []
     for index, cand in enumerate(candidates):
@@ -55,7 +59,8 @@ def compose_report(
         range(len(kept)),
         key=lambda i: (_SEV_RANK.get(_severity(kept[i][1]), 9), i),
     )
-    llm_eligible = set(order[:top_n])
+    frs_order = [i for i in order if kept[i][1].detector.startswith("frs.")]
+    llm_eligible = set(frs_order[:top_n])
     llm_used = False
     acquired = False
     if chat is not None and llm_eligible:
@@ -113,6 +118,7 @@ def compose_report(
     by_severity = {"error": 0, "warning": 0, "risk": 0}
     for finding in findings:
         by_severity[finding.severity] = by_severity.get(finding.severity, 0) + 1
+    integrity = [item for item in findings if not item.detector.startswith("frs.")]
 
     return Report(
         audit_id=audit_id,
@@ -135,6 +141,10 @@ def compose_report(
             llm_model=llm_model if llm_used else None,
             embedding_model=embedding_model if embeddings_used else None,
         ),
+        risk_screen=list(screen.controls),
+        issues=list(screen.issues),
+        positives=build_positives(screen),
+        verdict=build_verdict(screen, integrity),
     )
 
 
