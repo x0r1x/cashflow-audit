@@ -305,11 +305,13 @@ Label column — левая видимая строковая в блоке (ski
 | `agg_range_gap` | SUM vs статьи блока |
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
-| I1, I3a, I3b, I5, I7, I10 | IdentityResolver; нет concept → Question |
+| I1, I3a, I3b, I5, I7, I9, I10 | IdentityResolver; нет concept → Question |
 
 IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки; только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
 
 I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error). Нет net CF → не Finding. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
+
+I9: косвенный мост `CFO ≈ NI + D&A − ΔAR − ΔInv + ΔAP`. Нет NI/CFO или нет ни D&A, ни WC → Question. Отсутствующая статья WC/D&A = 0, не угадывание знака.
 
 I10: `opening + drawdown − repayment = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. FX в равенство не выдумываем.
 

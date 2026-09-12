@@ -7,6 +7,10 @@ from cashflow_audit.mapping.models import MappingDocument
 from tests.checkers.conftest import cell, ctx, headers, mapped, simple_layout
 
 
+def _stack_identity(*layouts: Layout) -> Layout:
+    return Layout(sheets=[sheet for layout in layouts for sheet in layout.sheets])
+
+
 def test_i1_imbalance_is_error() -> None:
     layout = simple_layout(
         [
@@ -745,3 +749,129 @@ def test_i7_without_da_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I7"]
     assert any("I7" in (q.prompt or "") for q in result.questions)
+
+
+def test_i9_cfo_bridge_break_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="NI"), LayoutRow(row=3, label="DA")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="AR")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CFO")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 3, "DA", "pnl.da", role="calculation"),
+            mapped("BS", 2, "AR", "bs.ar", role="output"),
+            mapped("CF", 2, "CFO", "cf.cfo", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "C2", "10"),
+                cell("P&L", "B3", "2"),
+                cell("P&L", "C3", "2"),
+                cell("BS", "B2", "50"),
+                cell("BS", "C2", "60"),
+                cell("CF", "B2", "12"),
+                cell("CF", "C2", "20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I9"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "CF!C2" in found[0].cell_refs
+    assert "P&L!C2" in found[0].cell_refs
+
+
+def test_i9_cfo_bridge_balanced_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="NI"), LayoutRow(row=3, label="DA")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="AR")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CFO")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 3, "DA", "pnl.da", role="calculation"),
+            mapped("BS", 2, "AR", "bs.ar", role="output"),
+            mapped("CF", 2, "CFO", "cf.cfo", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "C2", "10"),
+                cell("P&L", "C3", "2"),
+                cell("BS", "B2", "50"),
+                cell("BS", "C2", "60"),
+                cell("CF", "C2", "2"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I9"]
+
+
+def test_i9_without_da_or_wc_is_question_not_finding() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="NI")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CFO")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "CFO", "cf.cfo", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "C2", "12"),
+                cell("CF", "B2", "8"),
+                cell("CF", "C2", "9"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I9"]
+    assert any("I9" in (q.prompt or "") for q in result.questions)
