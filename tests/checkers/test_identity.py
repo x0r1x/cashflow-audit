@@ -605,6 +605,98 @@ def test_i7_ebit_mismatch_is_error() -> None:
     assert found[0].payload["delta"] == -10.0
 
 
+def test_i10_debt_rollforward_break_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Draw"),
+            LayoutRow(row=4, label="Repay"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("BS", 3, "Draw", "cf.drawdown", role="calculation"),
+            mapped("BS", 4, "Repay", "cf.repayment", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "150"),
+                cell("BS", "B3", "0"),
+                cell("BS", "C3", "50"),
+                cell("BS", "B4", "0"),
+                cell("BS", "C4", "20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I10"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!B2" in found[0].cell_refs
+    assert "BS!C2" in found[0].cell_refs
+    assert "BS!C3" in found[0].cell_refs
+    assert "BS!C4" in found[0].cell_refs
+
+
+def test_i10_balanced_rollforward_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Draw"),
+            LayoutRow(row=4, label="Repay"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("BS", 3, "Draw", "cf.drawdown", role="calculation"),
+            mapped("BS", 4, "Repay", "cf.repayment", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "130"),
+                cell("BS", "C3", "50"),
+                cell("BS", "C4", "20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I10"]
+
+
+def test_i10_without_flows_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Debt")],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("BS", 2, "Debt", "bs.debt", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("BS", "B2", "100"), cell("BS", "C2", "150")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I10"]
+    assert any("I10" in (q.prompt or "") for q in result.questions)
+
+
 def test_i7_balanced_is_negative() -> None:
     layout = simple_layout(
         [
