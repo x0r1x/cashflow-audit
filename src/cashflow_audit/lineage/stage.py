@@ -7,6 +7,8 @@ from pathlib import Path
 from cashflow_audit.checkers.models import CheckDocument
 from cashflow_audit.compile.csr import build_csr
 from cashflow_audit.compile.models import Edge
+from cashflow_audit.frs.candidates import issues_as_candidates
+from cashflow_audit.frs.models import FrsDocument
 from cashflow_audit.lineage.models import LineageDocument
 from cashflow_audit.lineage.trace import trace_lineage
 from cashflow_audit.mapping.models import MappingDocument
@@ -44,7 +46,13 @@ def lineage_workbook(dest_dir: Path) -> LineageDocument:
     ]
     extra = [f"{c['sheet']}!{c['addr']}" for c in cells]
     csr = build_csr(edges, extra_nodes=extra)
-    doc = trace_lineage(check.candidates, csr=csr, mapping=mapping)
+    frs_cands = []
+    frs_path = dest_dir / "frs.json"
+    if frs_path.exists():
+        frs_cands = issues_as_candidates(
+            FrsDocument.model_validate_json(frs_path.read_text(encoding="utf-8"))
+        )
+    doc = trace_lineage([*check.candidates, *frs_cands], csr=csr, mapping=mapping)
     write_json(path, doc.model_dump(mode="json"))
     log_event(
         _LOGGER,

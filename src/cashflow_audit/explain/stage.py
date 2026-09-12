@@ -8,6 +8,9 @@ from pathlib import Path
 from cashflow_audit.checkers.models import CheckDocument
 from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.explain.models import JobMeta, Report
+from cashflow_audit.frs.candidates import issues_as_candidates
+from cashflow_audit.frs.models import FrsDocument
+from cashflow_audit.frs.router import run_frs
 from cashflow_audit.lineage.models import LineageDocument
 from cashflow_audit.mapping.models import MappingDocument
 from cashflow_audit.observability import log_event
@@ -46,13 +49,14 @@ def explain_workbook(
     mapping = MappingDocument.model_validate_json(
         (dest_dir / "mapping.json").read_text(encoding="utf-8")
     )
+    frs = _load_frs(dest_dir)
     ir_refs = {
         f"{row['sheet']}!{row['addr']}"
         for row in read_parquet(dest_dir / "ir" / "cells.parquet")
     }
     embeddings_used = any(row.source == "embed" for row in mapping.rows)
     report = compose_report(
-        candidates=check.candidates,
+        candidates=[*check.candidates, *issues_as_candidates(frs)],
         lineage=lineage,
         mapping=mapping,
         check=check,
@@ -66,18 +70,17 @@ def explain_workbook(
         llm_model=llm_model,
         embedding_model=embedding_model,
         slot_timeout_sec=slot_timeout_sec,
+        frs=frs,
     )
-    write_json(report_path, report.model_dump(mode="json"))
+    screen = [item for item in report.findings if item.detector.startswith("frs.")]
+    integrity = [item for item in report.findings if not item.detector.startswith("frs.")]
+    payload = report.model_dump(mode="json")
+    payload["findings"] = [item.model_dump(mode="json") for item in screen]
+    payload["summary"]["findings"] = len(screen)
+    write_json(report_path, payload)
     write_json(
         integrity_path,
-        {
-            "findings": [
-                item.model_dump(mode="json")
-                for item in report.findings
-                if not item.detector.startswith("risk.")
-                and not item.detector.startswith("frs.")
-            ]
-        },
+        {"findings": [item.model_dump(mode="json") for item in integrity]},
     )
     write_json(
         meta_path,
@@ -92,3 +95,10 @@ def explain_workbook(
         duration_ms=int((time.monotonic() - t0) * 1000),
     )
     return report
+
+
+def _load_frs(dest_dir: Path) -> FrsDocument:
+    path = dest_dir / "frs.json"
+    if path.exists():
+        return FrsDocument.model_validate_json(path.read_text(encoding="utf-8"))
+    return run_frs(MappingDocument(rows=[]))

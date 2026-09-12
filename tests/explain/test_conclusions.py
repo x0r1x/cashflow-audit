@@ -76,7 +76,7 @@ def test_hardcode_and_ebitda_drop_is_combo() -> None:
         base_severity="warning",
     )
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4, "change": -0.2},
         base_severity="risk",
@@ -92,7 +92,7 @@ def test_hardcode_and_ebitda_drop_is_combo() -> None:
             ),
             _lin(
                 1,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!D20"],
                 path_refs=["P&L!D20"],
@@ -162,7 +162,7 @@ def test_i1_and_cash_negative_same_col_is_combo() -> None:
         base_severity="error",
     )
     cash = _cand(
-        detector="risk.cash_negative",
+        detector="frs.F08",
         cell_refs=["BS!E10"],
         payload={"col": 5},
         base_severity="risk",
@@ -180,7 +180,7 @@ def test_i1_and_cash_negative_same_col_is_combo() -> None:
             ),
             _lin(
                 1,
-                detector="risk.cash_negative",
+                detector="frs.F08",
                 cell_refs=["BS!E10"],
                 output_refs=["BS!E10"],
                 affected_metrics=["bs.cash"],
@@ -206,7 +206,7 @@ def test_external_link_and_metric_is_combo() -> None:
         base_severity="warning",
     )
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4, "change": -0.2},
         base_severity="risk",
@@ -223,7 +223,7 @@ def test_external_link_and_metric_is_combo() -> None:
             ),
             _lin(
                 1,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!C3"],
                 path_refs=["Inputs!B2", "P&L!D20", "P&L!C3"],
@@ -238,7 +238,7 @@ def test_external_link_and_metric_is_combo() -> None:
 
 def test_ebitda_drop_without_hardcode_is_dynamics() -> None:
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4, "change": -0.2},
         base_severity="risk",
@@ -248,7 +248,7 @@ def test_ebitda_drop_without_hardcode_is_dynamics() -> None:
         [
             _lin(
                 0,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!D20"],
                 path_refs=["P&L!D20"],
@@ -268,7 +268,7 @@ def test_hardcode_on_other_metric_is_not_combo() -> None:
         base_severity="warning",
     )
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4, "change": -0.2},
         base_severity="risk",
@@ -286,7 +286,7 @@ def test_hardcode_on_other_metric_is_not_combo() -> None:
             ),
             _lin(
                 1,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!D20"],
                 affected_metrics=["pnl.ebitda"],
@@ -307,7 +307,7 @@ def test_hist_hardcode_and_forecast_drop_is_not_combo() -> None:
         base_severity="warning",
     )
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4, "change": -0.2},
         base_severity="risk",
@@ -323,7 +323,7 @@ def test_hist_hardcode_and_forecast_drop_is_not_combo() -> None:
             ),
             _lin(
                 1,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!D20"],
                 path_refs=["P&L!D20"],
@@ -353,7 +353,7 @@ def test_conclusion_refs_are_subset_of_cited_findings() -> None:
         base_severity="warning",
     )
     drop = _cand(
-        detector="risk.ebitda_drop",
+        detector="frs.F02",
         cell_refs=["P&L!D20"],
         payload={"col": 4},
         base_severity="risk",
@@ -369,7 +369,7 @@ def test_conclusion_refs_are_subset_of_cited_findings() -> None:
             ),
             _lin(
                 1,
-                detector="risk.ebitda_drop",
+                detector="frs.F02",
                 cell_refs=["P&L!D20"],
                 output_refs=["P&L!D20"],
                 path_refs=["P&L!D20"],

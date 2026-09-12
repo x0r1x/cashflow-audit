@@ -124,7 +124,7 @@ def _hardcode_ebitda(rows: Sequence[_Row]) -> tuple[Conclusion | None, set[str]]
     picked = _pair(
         rows,
         left_dets=HARDCODE,
-        right_dets=frozenset({"risk.ebitda_drop"}),
+        right_dets=frozenset({"frs.F02"}),
         ok=_hardcode_ok,
     )
     if not picked:
@@ -149,7 +149,7 @@ def _balance_cash(rows: Sequence[_Row]) -> tuple[Conclusion | None, set[str]]:
     picked = _pair(
         rows,
         left_dets=frozenset({"identity.I1"}),
-        right_dets=frozenset({"risk.cash_negative"}),
+        right_dets=frozenset({"frs.F08"}),
         ok=_period_ok,
     )
     if not picked:
@@ -310,7 +310,7 @@ def _is_trust(row: _Row) -> bool:
 
 
 def _is_risk(row: _Row) -> bool:
-    return row.finding.detector.startswith("risk.")
+    return row.finding.detector.startswith("frs.")
 
 
 def _emit(
