@@ -9,6 +9,7 @@ from cashflow_audit.frs.context import (
     month_slots,
     period_role,
     value_at,
+    year_amount,
     year_slots,
 )
 from cashflow_audit.frs.models import ControlResult, FrsIssue
@@ -62,16 +63,16 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     metrics: dict = {}
     prev_yoy: float | None = None
     for prev, cur in zip(slots, slots[1:], strict=False):
-        pkey, pcols = prev
-        ckey, ccols = cur
-        before = cell_value(ctx, row, pcols[0])
-        after = cell_value(ctx, row, ccols[0])
+        pkey, _pcols = prev
+        ckey, _ccols = cur
+        before, before_refs = year_amount(ctx, row, pkey)
+        after, after_refs = year_amount(ctx, row, ckey)
         if before is None or after is None or before == 0.0:
             continue
         change = after / before - 1.0
         role = period_role(ctx, row, ckey)
         if role == "forecast" and change <= -YOY_DROP:
-            flagged_refs = [cell_ref(row, pcols[0]), cell_ref(row, ccols[0])]
+            flagged_refs = [*before_refs, *after_refs]
             metrics = {"change": change, "period_key": ckey}
             break
         if (
@@ -80,7 +81,7 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
             and prev_yoy is not None
             and abs(change - prev_yoy) >= CLIFF_PP
         ):
-            flagged_refs = [cell_ref(row, pcols[0]), cell_ref(row, ccols[0])]
+            flagged_refs = [*before_refs, *after_refs]
             metrics = {"change": change, "prev_yoy": prev_yoy, "period_key": ckey}
             break
         prev_yoy = change
@@ -94,19 +95,15 @@ def handle_f02(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         return _na(spec_id, name), None
     slots = year_slots(ctx, ebitda, rev)
     for prev, cur in zip(slots, slots[1:], strict=False):
-        _pkey, pcols = prev
-        ckey, ccols = cur
+        pkey, _pcols = prev
+        ckey, _ccols = cur
         if period_role(ctx, ebitda, ckey) != "forecast":
             continue
-        e0 = cell_value(ctx, ebitda, pcols[0])
-        e1 = cell_value(ctx, ebitda, ccols[0])
-        r0 = cell_value(ctx, rev, pcols[1])
-        r1 = cell_value(ctx, rev, ccols[1])
-        refs = [
-            cell_ref(ebitda, pcols[0]),
-            cell_ref(ebitda, ccols[0]),
-            cell_ref(rev, ccols[1]),
-        ]
+        e0, e0_refs = year_amount(ctx, ebitda, pkey)
+        e1, e1_refs = year_amount(ctx, ebitda, ckey)
+        r0, _r0_refs = year_amount(ctx, rev, pkey)
+        r1, r1_refs = year_amount(ctx, rev, ckey)
+        refs = [*e0_refs, *e1_refs, *r1_refs]
         if e0 is not None and e1 is not None and e0 != 0.0 and e1 / e0 - 1.0 <= -YOY_DROP:
             return _finish(
                 spec_id,
@@ -136,20 +133,19 @@ def handle_f03(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     if row is None:
         return _na(spec_id, name), None
     slots = year_slots(ctx, row)
-    run: list[tuple[str, int]] = []
-    for key, cols in slots:
+    run: list[tuple[str, list[str]]] = []
+    for key, _cols in slots:
         if period_role(ctx, row, key) != "forecast":
             run = []
             continue
-        val = cell_value(ctx, row, cols[0])
+        val, refs = year_amount(ctx, row, key)
         if val is not None and val < 0.0:
-            run.append((key, cols[0]))
+            run.append((key, refs))
             if len(run) >= NEG_STREAK:
-                refs = [cell_ref(row, col) for _k, col in run]
                 return _finish(
                     spec_id,
                     name,
-                    refs,
+                    [ref for _k, item in run for ref in item],
                     {"cols": [k for k, _c in run]},
                     "assumptions",
                     "medium",
@@ -164,13 +160,13 @@ def handle_f11(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     if row is None:
         return _na(spec_id, name), None
     slots = year_slots(ctx, row)
-    hist = [(k, c[0]) for k, c in slots if period_role(ctx, row, k) == "historical"]
-    fcst = [(k, c[0]) for k, c in slots if period_role(ctx, row, k) == "forecast"]
-    hist_g = _mean_yoy(ctx, row, [c for _k, c in hist])
-    fcst_g = _mean_yoy(ctx, row, [c for _k, c in fcst])
+    hist = [k for k, _c in slots if period_role(ctx, row, k) == "historical"]
+    fcst = [k for k, _c in slots if period_role(ctx, row, k) == "forecast"]
+    hist_g = _mean_yoy_keys(ctx, row, hist)
+    fcst_g = _mean_yoy_keys(ctx, row, fcst)
     if hist_g is None or fcst_g is None or fcst_g - hist_g < AGGRESSIVE_LIFT:
         return _finish(spec_id, name, [], {}, "assumptions", "low")
-    refs = [cell_ref(row, c) for _k, c in hist + fcst]
+    refs = [ref for key in hist + fcst for ref in year_amount(ctx, row, key)[1]]
     return _finish(
         spec_id,
         name,
@@ -193,15 +189,14 @@ def handle_f04(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         return _insufficient(spec_id, name), None
     red: list[tuple[str, list[str]]] = []
     points: list[tuple[str, float | None, float | None, list[str], str]] = []
-    for key, cols in slots:
-        ni_val = cell_value(ctx, ni, cols[0])
+    for key, _cols in slots:
+        ni_val, ni_refs = year_amount(ctx, ni, key)
         fcf_val, fcf_refs = _fcf_at(ctx, key)
         cfo_val, cfo_ref = value_at(ctx, "cf.cfo", key)
-        ni_ref = cell_ref(ni, cols[0])
-        refs = [ni_ref, *fcf_refs]
+        refs = [*ni_refs, *fcf_refs]
         if cfo_ref:
             refs.append(cfo_ref)
-        points.append((key, cfo_val, fcf_val, refs, ni_ref))
+        points.append((key, cfo_val, fcf_val, refs, ni_refs[0] if ni_refs else ""))
         if (
             period_role(ctx, ni, key) == "forecast"
             and ni_val is not None
@@ -233,7 +228,17 @@ def handle_f04(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     refs = [ref for _key, item in red for ref in item]
     refs.extend(diverged_refs)
     cause = _f04_cause(ctx, ni, keys)
-    metrics = {"period_keys": keys, "fcf_source": source, "cause": cause}
+    snap_key = keys[0] if keys else (points[1][0] if len(points) > 1 else None)
+    metrics: dict = {"period_keys": keys, "fcf_source": source, "cause": cause}
+    if snap_key is not None:
+        ni_snap, _ = year_amount(ctx, ni, snap_key)
+        cfo_snap, _ = value_at(ctx, "cf.cfo", snap_key)
+        fcf_snap, _ = _fcf_at(ctx, snap_key)
+        metrics["ni"] = ni_snap
+        metrics["cfo"] = cfo_snap
+        metrics["fcf"] = fcf_snap
+        if ni_snap is not None and cfo_snap is not None:
+            metrics["accruals"] = ni_snap - cfo_snap
     return _finish(
         spec_id,
         name,
@@ -253,14 +258,14 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         return _na(spec_id, name), None
     slots = year_slots(ctx, debt, ebitda)
     ratios: list[tuple[str, float, list[str]]] = []
-    for key, cols in slots:
-        d = cell_value(ctx, debt, cols[0])
-        e = cell_value(ctx, ebitda, cols[1])
+    for key, _cols in slots:
+        d, d_refs = year_amount(ctx, debt, key)
+        e, e_refs = year_amount(ctx, ebitda, key)
         if d is None or e is None or e <= 0.0:
             continue
         cash_val, cash_ref = value_at(ctx, "bs.cash", key)
         net = d - cash_val if cash_val is not None else d
-        refs = [cell_ref(debt, cols[0]), cell_ref(ebitda, cols[1])]
+        refs = [*d_refs, *e_refs]
         if cash_ref:
             refs.append(cash_ref)
         ratios.append((key, net / e, refs))
@@ -299,15 +304,15 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         return _na(spec_id, name), None
     slots = year_slots(ctx, ebitda, interest)
     worst: tuple[str, float, list[str]] | None = None
-    for key, cols in slots:
-        e = cell_value(ctx, ebitda, cols[0])
-        i = cell_value(ctx, interest, cols[1])
+    for key, _cols in slots:
+        e, e_refs = year_amount(ctx, ebitda, key)
+        i, i_refs = year_amount(ctx, interest, key)
         if e is None or i is None or i == 0.0:
             continue
         icr = e / abs(i)
         if icr >= ICR_FLOOR:
             continue
-        refs = [cell_ref(ebitda, cols[0]), cell_ref(interest, cols[1])]
+        refs = [*e_refs, *i_refs]
         if worst is None or icr < worst[1]:
             worst = (key, icr, refs)
     if worst is None:
@@ -394,8 +399,8 @@ def handle_f13(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     slots = year_slots(ctx, div_row)
     if not slots:
         return _insufficient(spec_id, name), None
-    for key, cols in slots:
-        div = cell_value(ctx, div_row, cols[0])
+    for key, _cols in slots:
+        div, div_refs = year_amount(ctx, div_row, key)
         fcff, fcf_refs = _fcf_at(ctx, key)
         if div is None or fcff is None or div <= 0.0 or fcff >= 0.0:
             continue
@@ -404,7 +409,7 @@ def handle_f13(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         metrics: dict = {"fcff": fcff, "period_key": key, "fcf_source": source}
         if draw is not None or repay is not None:
             metrics["fcfe"] = fcff + (draw or 0.0) - (repay or 0.0)
-        refs = [cell_ref(div_row, cols[0]), *fcf_refs]
+        refs = [*div_refs, *fcf_refs]
         if draw_ref:
             refs.append(draw_ref)
         if repay_ref:
@@ -456,9 +461,9 @@ def handle_f05(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                         break
     prev_ar: float | None = None
     prev_rev: float | None = None
-    for _key, cols in year_slots(ctx, ar, rev):
-        a = cell_value(ctx, ar, cols[0])
-        r = cell_value(ctx, rev, cols[1])
+    for _key, _cols in year_slots(ctx, ar, rev):
+        a, _a_refs = year_amount(ctx, ar, _key)
+        r, _r_refs = year_amount(ctx, rev, _key)
         if (
             prev_ar is not None
             and prev_rev is not None
@@ -467,7 +472,7 @@ def handle_f05(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
             and r > prev_rev
             and (a - prev_ar) > AR_OVER_REV * (r - prev_rev)
         ):
-            refs.extend([cell_ref(ar, cols[0]), cell_ref(rev, cols[1])])
+            refs.extend([*_a_refs, *_r_refs])
         if a is not None:
             prev_ar = a
         if r is not None:
@@ -543,10 +548,10 @@ def handle_f12(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     ]
     if len(fcst) < 2:
         return _insufficient(spec_id, name), None
-    first_key, first_cols = fcst[0]
-    last_key, last_cols = fcst[-1]
-    r0 = cell_value(ctx, rev, first_cols[0])
-    r1 = cell_value(ctx, rev, last_cols[0])
+    first_key, _first_cols = fcst[0]
+    last_key, _last_cols = fcst[-1]
+    r0, r0_refs = year_amount(ctx, rev, first_key)
+    r1, r1_refs = year_amount(ctx, rev, last_key)
     f0, f0_refs = _fcf_at(ctx, first_key)
     f1, f1_refs = _fcf_at(ctx, last_key)
     if r0 is None or r1 is None or r0 == 0.0 or f0 is None or f1 is None:
@@ -566,8 +571,8 @@ def handle_f12(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     if rev_chg < REV_LIFT or not fcf_bad:
         return _finish(spec_id, name, [], metrics, "economic_logic", "medium")
     refs = [
-        cell_ref(rev, first_cols[0]),
-        cell_ref(rev, last_cols[0]),
+        *r0_refs,
+        *r1_refs,
         *f0_refs,
         *f1_refs,
     ]
@@ -610,13 +615,13 @@ def _days_series(
         return None, []
     hist: list[float] = []
     fcst: list[tuple[str, float, list[str]]] = []
-    for key, cols in year_slots(ctx, stock, flow):
-        s = cell_value(ctx, stock, cols[0])
-        f = cell_value(ctx, flow, cols[1])
+    for key, _cols in year_slots(ctx, stock, flow):
+        s, s_refs = year_amount(ctx, stock, key)
+        f, f_refs = year_amount(ctx, flow, key)
         if s is None or f is None or f == 0.0:
             continue
         days = s * 365.0 / f
-        refs = [cell_ref(stock, cols[0]), cell_ref(flow, cols[1])]
+        refs = [*s_refs, *f_refs]
         role = period_role(ctx, stock, key)
         if role == "historical":
             hist.append(days)
@@ -635,16 +640,16 @@ def _fcf_source(ctx: FrsCtx) -> str:
 
 
 def _fcf_at(ctx: FrsCtx, key: str) -> tuple[float | None, list[str]]:
+    totals = book_totals(ctx)
     source = _fcf_source(ctx)
     if source == "mapped":
-        val, ref = value_at(ctx, "cf.fcf", key)
-        return val, [ref] if ref else []
+        return year_amount(ctx, totals["cf.fcf"], key)
     if source == "derived":
-        cfo, cfo_ref = value_at(ctx, "cf.cfo", key)
-        capex, capex_ref = value_at(ctx, "cf.capex", key)
+        cfo, cfo_refs = year_amount(ctx, totals["cf.cfo"], key)
+        capex, capex_refs = year_amount(ctx, totals["cf.capex"], key)
         if cfo is None or capex is None:
             return None, []
-        return cfo + capex, [ref for ref in (cfo_ref, capex_ref) if ref]
+        return cfo + capex, [*cfo_refs, *capex_refs]
     return None, []
 
 
@@ -652,8 +657,8 @@ def _f04_cause(ctx: FrsCtx, ni_row: MappedRow, flagged: list[str]) -> str:
     scores = {"ops": 0.0, "wc_ar": 0.0, "wc_ap": 0.0, "capex": 0.0, "dividends": 0.0}
     prev_ar: float | None = None
     prev_ap: float | None = None
-    for key, cols in year_slots(ctx, ni_row):
-        ni_val = cell_value(ctx, ni_row, cols[0])
+    for key, _cols in year_slots(ctx, ni_row):
+        ni_val, _ = year_amount(ctx, ni_row, key)
         cfo, _ = value_at(ctx, "cf.cfo", key)
         capex, _ = value_at(ctx, "cf.capex", key)
         div, _ = value_at(ctx, "cf.dividends", key)
@@ -680,11 +685,11 @@ def _uniq(refs: list[str]) -> list[str]:
     return list(dict.fromkeys(refs))
 
 
-def _mean_yoy(ctx: FrsCtx, row: MappedRow, cols: list[int]) -> float | None:
+def _mean_yoy_keys(ctx: FrsCtx, row: MappedRow, keys: list[str]) -> float | None:
     changes: list[float] = []
-    for prev, cur in zip(cols, cols[1:], strict=False):
-        before = cell_value(ctx, row, prev)
-        after = cell_value(ctx, row, cur)
+    for prev, cur in zip(keys, keys[1:], strict=False):
+        before, _ = year_amount(ctx, row, prev)
+        after, _ = year_amount(ctx, row, cur)
         if before is None or after is None or before == 0.0:
             continue
         changes.append(after / before - 1.0)
