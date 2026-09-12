@@ -13,6 +13,7 @@ from cashflow_audit.compile.stage import compile_workbook
 from cashflow_audit.errors import AuditError, PortError
 from cashflow_audit.explain.models import JobMeta, Report, ReportSummary
 from cashflow_audit.explain.stage import explain_workbook
+from cashflow_audit.frs.stage import frs_workbook
 from cashflow_audit.ir.catalog import IrCatalog
 from cashflow_audit.layout.models import Layout
 from cashflow_audit.layout.stage import layout_workbook, register_layout
@@ -115,6 +116,10 @@ class Pipeline:
             )
             self._enter("check")
             check_workbook(dest_dir, self.catalog)
+            self._enter("frs")
+            t_frs = time.monotonic()
+            frs_workbook(dest_dir)
+            _stage_done("frs", t_frs)
             self._enter("lineage")
             lineage_workbook(dest_dir)
             self._enter("explain")
