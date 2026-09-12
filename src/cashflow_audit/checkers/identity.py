@@ -11,6 +11,7 @@ I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
+I8_CONCEPTS = ("pnl.da", "cf.da")
 I9_NEED = ("pnl.net_income", "cf.cfo")
 I9_NICE = ("pnl.da", "bs.ar", "bs.inventory", "bs.ap")
 I10_STOCK = ("bs.debt",)
@@ -112,6 +113,12 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.tax_rate"],
             )
         )
+    if "pnl.da" in book and "cf.da" not in book:
+        qn = _maybe_question(questions, qn, "I8", ("cf.da",), book, ctx)
+    elif "cf.da" in book and "pnl.da" not in book:
+        qn = _maybe_question(questions, qn, "I8", ("pnl.da",), book, ctx)
+    for group in _groups(by_block, book, I8_CONCEPTS):
+        candidates.extend(_i8(ctx, group["pnl.da"], group["cf.da"]))
     return candidates, questions
 
 
@@ -513,6 +520,34 @@ def _i12(
                     _cell_ref(rate, cols[2]),
                 ],
                 payload={"col": cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i8(
+    ctx: CheckContext,
+    pnl_da: MappedRow,
+    cf_da: MappedRow,
+) -> list[Candidate]:
+    found: list[Candidate] = []
+    for key, cols in _aligned(ctx, pnl_da, cf_da):
+        left = _value(ctx, pnl_da, cols[0])
+        right = _value(ctx, cf_da, cols[1])
+        if left is None or right is None:
+            continue
+        thresh = max(1.0, 0.001 * max(abs(left), abs(right)))
+        if abs(abs(left) - abs(right)) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I8",
+                cell_refs=[
+                    _cell_ref(pnl_da, cols[0]),
+                    _cell_ref(cf_da, cols[1]),
+                ],
+                payload={"col": cols[0], "period_key": key, "delta": abs(left) - abs(right)},
                 base_severity="error",
             )
         )

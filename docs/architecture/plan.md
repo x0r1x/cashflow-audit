@@ -305,7 +305,7 @@ Label column — левая видимая строковая в блоке (ski
 | `agg_range_gap` | SUM vs статьи блока |
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
-| I1, I3a, I3b, I5, I7, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
+| I1, I3a, I3b, I5, I7, I8, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
 
 IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки; только `historical|forecast|stub`, не `scenario`/`total`. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
 
@@ -318,6 +318,8 @@ I10: `opening + drawdown − repayment = closing` по `bs.debt`. Нет дол�
 I11: `interest ≈ rate × среднее(opening, closing) долга`. Ставка > 1 трактуется как проценты (12 → 0.12). Нет ставки или долга → Question, не выдуманный купон.
 
 I12: `tax ≈ rate × (NI + tax)` (прибыль до налога = NI + текущий налог). Ставка > 1 как проценты (25 → 0.25). Нет ставки, налога или NI → Question, не выдуманные 20%. Отложенный налог не выдумываем.
+
+I8: `abs(pnl.da) ≈ abs(cf.da)` по периоду. Знак расхода vs add-back не ошибка. Есть D&A только с одной стороны → Question. График ОС не выдумываем.
 
 Сигналы риска (`risk.*`) **не** в check — стадия `frs`.
 
