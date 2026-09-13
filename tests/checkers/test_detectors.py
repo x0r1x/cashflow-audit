@@ -991,6 +991,104 @@ def test_volume_without_cogs_mapped_is_silent() -> None:
     )
 
 
+def test_volume_up_ar_flat_is_warning() -> None:
+    years = headers((2, "2023", "historical"), (3, "2024E", "forecast"))
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Volume")],
+            axis=years,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="AR")],
+            sheet="BS",
+            axis=years,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("BS", 2, "AR", "bs.ar", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+                cell("BS", "B2", "50"),
+                cell("BS", "C2", "50"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "volume_without_wc")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!C2" in found[0].cell_refs
+    assert "BS!B2" in found[0].cell_refs
+    assert "BS!C2" in found[0].cell_refs
+
+
+def test_volume_up_ar_up_is_silent() -> None:
+    years = headers((2, "2023", "historical"), (3, "2024E", "forecast"))
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Volume")],
+            axis=years,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="AR")],
+            sheet="BS",
+            axis=years,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("BS", 2, "AR", "bs.ar", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+                cell("BS", "B2", "50"),
+                cell("BS", "C2", "70"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "volume_without_wc")
+
+
+def test_volume_without_wc_mapped_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Volume")],
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Volume", "pnl.volume", role="assumption")]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "volume_without_wc")
+    assert not any(
+        "volume_without_wc" in (q.prompt or "") for q in result.questions
+    )
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(

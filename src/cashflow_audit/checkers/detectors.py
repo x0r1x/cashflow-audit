@@ -528,6 +528,10 @@ def detect_volume_without_cogs(ctx: CheckContext) -> list[Candidate]:
     return _volume_without(ctx, "pnl.cogs", "volume_without_cogs")
 
 
+def detect_volume_without_wc(ctx: CheckContext) -> list[Candidate]:
+    return _volume_without(ctx, "bs.ar", "volume_without_wc")
+
+
 def _volume_without(
     ctx: CheckContext, other_id: str, detector: str
 ) -> list[Candidate]:

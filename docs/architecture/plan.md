@@ -314,6 +314,7 @@ Label column — левая видимая строковая в блоке (ski
 | `irr_below_wacc` | mapped IRR < mapped WACC после `_as_rate`; нет WACC — молчит, не HITL и не 12% |
 | `volume_without_capex` | объём ≥10% г/г (требования №13), \|CAPEX\| не растёт; нет capex — молчит, не HITL и не штат |
 | `volume_without_cogs` | объём ≥10% г/г (требования №12), \|COGS\| не растёт; нет cogs — молчит, не HITL |
+| `volume_without_wc` | объём ≥10% г/г (требования №13), \|AR\| не растёт; нет AR — молчит, не HITL, запасы/КЗ/штат не угадываем |
 | I1, I3a, I3b, I4, I5, I6, I7, I8, I8b, I9, I10, I11, I12, I13 | IdentityResolver; нет concept → Question |
 
 IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки. Snapshot (I1, I4, I5, I6, I7, I8, I12): `historical|forecast|stub|scenario`. Rollforward (I3a, I3b, I8b, I9, I10, I11): не `scenario`/`total` — колонки сценария не склеиваются как соседние годы. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
