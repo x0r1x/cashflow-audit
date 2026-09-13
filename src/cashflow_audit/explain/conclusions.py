@@ -31,6 +31,7 @@ TRUST_DETECTORS = frozenset(
         "error_masking",
         "circular",
         "agg_range_gap",
+        "agg_double_count",
         "hidden_input",
         "external_link",
     }
