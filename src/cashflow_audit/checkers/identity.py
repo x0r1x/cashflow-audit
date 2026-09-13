@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from cashflow_audit.checkers.astutil import as_number
 from cashflow_audit.checkers.context import CheckContext
 from cashflow_audit.checkers.models import Candidate
@@ -23,6 +25,7 @@ I11_CONCEPTS = ("pnl.interest", "bs.debt", "pnl.interest_rate")
 I12_CONCEPTS = ("pnl.tax", "pnl.net_income", "pnl.tax_rate")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
 _IDENTITY_SNAPSHOT_ROLES = _IDENTITY_PERIOD_ROLES | {"scenario"}
+_MONTH_KEY = re.compile(r"^\d{4}-\d{2}$")
 
 
 def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQuestion]]:
@@ -498,7 +501,12 @@ def _i11(
         raw_rate = _value(ctx, rate, cur_cols[2])
         if got is None or opening is None or closing is None or raw_rate is None:
             continue
-        expected = _as_rate(raw_rate) * (abs(opening) + abs(closing)) / 2.0
+        expected = (
+            _as_rate(raw_rate)
+            * (abs(opening) + abs(closing))
+            / 2.0
+            / _rate_periods(key)
+        )
         thresh = max(1.0, 0.001 * max(abs(got), abs(expected)))
         if abs(abs(got) - abs(expected)) <= thresh:
             continue
@@ -663,6 +671,12 @@ def _as_rate(raw: float) -> float:
     if abs(raw) > 1.0:
         return raw / 100.0
     return raw
+
+
+def _rate_periods(key: str) -> float:
+    if _MONTH_KEY.fullmatch(key):
+        return 12.0
+    return 1.0
 
 
 _ROLE_RANK = {"historical": 0, "stub": 1, "forecast": 2}
