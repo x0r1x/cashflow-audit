@@ -1472,6 +1472,99 @@ def test_i8b_without_flows_is_question_not_finding() -> None:
     assert any("I8b" in (q.prompt or "") for q in result.questions)
 
 
+def test_i8b_mapped_fx_explains_gap_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [
+                LayoutRow(row=2, label="PPE"),
+                LayoutRow(row=3, label="PPE FX"),
+            ],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("BS", 3, "PPE FX", "fx.ppe", role="calculation"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "125"),
+                cell("BS", "C3", "15"),
+                cell("CF", "C2", "20"),
+                cell("P&L", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8b"]
+
+
+def test_i8b_mapped_fx_still_broken_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [
+                LayoutRow(row=2, label="PPE"),
+                LayoutRow(row=3, label="PPE FX"),
+            ],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("BS", 3, "PPE FX", "fx.ppe", role="calculation"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "140"),
+                cell("BS", "C3", "15"),
+                cell("CF", "C2", "20"),
+                cell("P&L", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I8b"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C3" in found[0].cell_refs
+
+
 def test_i4_volume_times_price_mismatch_is_error() -> None:
     layout = simple_layout(
         [

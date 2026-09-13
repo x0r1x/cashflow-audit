@@ -342,7 +342,7 @@ I13: `opening equity + NI − dividends = closing`. Дивиденды в ОДД
 
 I8: `abs(pnl.da) ≈ abs(cf.da)` по периоду. Знак расхода vs add-back не ошибка. Есть D&A только с одной стороны → Question.
 
-I8b: `opening + abs(capex) − abs(DA) = closing` по `bs.ppe`. Capex в ОДДС как отток (−20) не ломает равенство. Нет PPE при D&A/capex или PPE без потоков → Question. FX/переоценку не выдумываем.
+I8b: `opening + abs(capex) − abs(DA) + mapped fx.ppe = closing` по `bs.ppe`. Capex в ОДДС как отток (−20) не ломает равенство. Нет PPE при D&A/capex или PPE без потоков → Question. Нет `fx.ppe` — курс/переоценку не выдумываем.
 
 Сигналы риска (`risk.*`) **не** в check — стадия `frs`.
 
