@@ -521,17 +521,27 @@ def detect_irr_below_wacc(ctx: CheckContext) -> list[Candidate]:
 
 
 def detect_volume_without_capex(ctx: CheckContext) -> list[Candidate]:
+    return _volume_without(ctx, "cf.capex", "volume_without_capex")
+
+
+def detect_volume_without_cogs(ctx: CheckContext) -> list[Candidate]:
+    return _volume_without(ctx, "pnl.cogs", "volume_without_cogs")
+
+
+def _volume_without(
+    ctx: CheckContext, other_id: str, detector: str
+) -> list[Candidate]:
     volume = _mapped_concept(ctx, "pnl.volume")
-    capex = _mapped_concept(ctx, "cf.capex")
-    if volume is None or capex is None:
+    other = _mapped_concept(ctx, other_id)
+    if volume is None or other is None:
         return []
     vol_cols = _header_cols(ctx, volume)
-    cap_cols = _header_cols(ctx, capex)
+    other_cols = _header_cols(ctx, other)
     keys = sorted(
         key
-        for key in set(vol_cols) & set(cap_cols)
+        for key in set(vol_cols) & set(other_cols)
         if _period_role(ctx, volume, key) in _TIME_ROLES
-        and _period_role(ctx, capex, key) in _TIME_ROLES
+        and _period_role(ctx, other, key) in _TIME_ROLES
     )
     found: list[Candidate] = []
     for prev, cur in zip(keys, keys[1:], strict=False):
@@ -539,8 +549,8 @@ def detect_volume_without_capex(ctx: CheckContext) -> list[Candidate]:
             continue
         v0 = _cell_number(ctx, volume, vol_cols[prev])
         v1 = _cell_number(ctx, volume, vol_cols[cur])
-        c0 = _cell_number(ctx, capex, cap_cols[prev])
-        c1 = _cell_number(ctx, capex, cap_cols[cur])
+        c0 = _cell_number(ctx, other, other_cols[prev])
+        c1 = _cell_number(ctx, other, other_cols[cur])
         if None in (v0, v1, c0, c1) or abs(v0) == 0.0:
             continue
         if abs(v1) / abs(v0) - 1.0 < VOL_GROWTH - 1e-9:
@@ -551,12 +561,12 @@ def detect_volume_without_capex(ctx: CheckContext) -> list[Candidate]:
             continue
         found.append(
             Candidate(
-                detector="volume_without_capex",
+                detector=detector,
                 cell_refs=[
                     _mapped_ref(volume, vol_cols[prev]),
                     _mapped_ref(volume, vol_cols[cur]),
-                    _mapped_ref(capex, cap_cols[prev]),
-                    _mapped_ref(capex, cap_cols[cur]),
+                    _mapped_ref(other, other_cols[prev]),
+                    _mapped_ref(other, other_cols[cur]),
                 ],
                 payload={"period_key": cur},
                 base_severity="warning",
