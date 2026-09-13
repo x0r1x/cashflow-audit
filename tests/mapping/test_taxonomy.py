@@ -28,6 +28,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "fx.ppe",
         "cf.equity_issue",
         "pnl.deferred_tax",
+        "fx.equity",
     } <= ids
 
 
@@ -229,3 +230,19 @@ def test_deferred_tax_labels_are_specific() -> None:
     assert "tax rate" not in labels
     assert "налог" not in labels
     assert "deferred" not in labels
+
+
+def test_equity_fx_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "fx.equity" in by_id
+    labels = {label.lower() for label in by_id["fx.equity"].labels}
+    assert "equity fx" in labels
+    assert "fx on equity" in labels
+    assert "переоценка капитала" in labels
+    assert "fx" not in labels
+    assert "fx rate" not in labels
+    assert "курс" not in labels
+    assert "usd/rub" not in labels
+    assert "переоценка долга" not in labels
+    assert "переоценка ос" not in labels
+    assert "equity" not in labels

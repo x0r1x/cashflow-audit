@@ -56,6 +56,7 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         qn = _maybe_question(questions, qn, "I13", ("pnl.net_income",), book, ctx)
     for group in _groups(by_block, book, I13_CONCEPTS):
         issue = group.get("cf.equity_issue") or book.get("cf.equity_issue")
+        fx = group.get("fx.equity") or book.get("fx.equity")
         candidates.extend(
             _i13(
                 ctx,
@@ -63,6 +64,7 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.net_income"],
                 group["cf.dividends"],
                 issue,
+                fx,
             )
         )
     if "pnl.revenue" in book and "pnl.volume" in book and "pnl.price" not in book:
@@ -404,10 +406,12 @@ def _i13(
     ni: MappedRow,
     div: MappedRow,
     issue: MappedRow | None = None,
+    fx: MappedRow | None = None,
 ) -> list[Candidate]:
     slots = _aligned(ctx, equity, ni)
     div_cols = _axis_cols(ctx, div)
     issue_cols = _axis_cols(ctx, issue) if issue is not None else {}
+    fx_cols = _axis_cols(ctx, fx) if fx is not None else {}
     found: list[Candidate] = []
     for prev, cur in zip(slots, slots[1:], strict=False):
         _pkey, prev_cols = prev
@@ -417,6 +421,7 @@ def _i13(
         income = _value(ctx, ni, cur_cols[1])
         dividends = 0.0
         issued = 0.0
+        fx_amt = 0.0
         if key in div_cols:
             part = _value(ctx, div, div_cols[key])
             if part is None:
@@ -427,9 +432,14 @@ def _i13(
             if part is None:
                 continue
             issued = part
+        if fx is not None and key in fx_cols:
+            part = _value(ctx, fx, fx_cols[key])
+            if part is None:
+                continue
+            fx_amt = part
         if opening is None or closing is None or income is None:
             continue
-        expected = opening + income - dividends + issued
+        expected = opening + income - dividends + issued + fx_amt
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
@@ -442,6 +452,8 @@ def _i13(
             refs.append(_cell_ref(div, div_cols[key]))
         if issue is not None and key in issue_cols:
             refs.append(_cell_ref(issue, issue_cols[key]))
+        if fx is not None and key in fx_cols:
+            refs.append(_cell_ref(fx, fx_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I13",

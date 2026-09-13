@@ -338,7 +338,7 @@ I11: `interest ≈ rate × среднее(opening, closing) долга`. Ста�
 
 I12: `(tax + mapped pnl.deferred_tax) ≈ rate × (NI + tax + deferred)` (прибыль до налога = NI + текущий + отложенный). Ставка > 1 как проценты (25 → 0.25). Нет ставки, налога или NI → Question, не выдуманные 20%. Нет deferred — не выдумываем.
 
-I13: `opening equity + NI − dividends + mapped cf.equity_issue = closing`. Дивиденды в ОДДС без капитала → Question. I3b смотрит RE; I13 — итог капитала. Нет эмиссии — не выдумываем. FX в I13 не выдумываем.
+I13: `opening equity + NI − dividends + mapped cf.equity_issue + mapped fx.equity = closing`. Дивиденды в ОДДС без капитала → Question. I3b смотрит RE; I13 — итог капитала. Нет эмиссии/FX — не выдумываем.
 
 I8: `abs(pnl.da) ≈ abs(cf.da)` по периоду. Знак расхода vs add-back не ошибка. Есть D&A только с одной стороны → Question.
 

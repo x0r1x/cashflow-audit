@@ -85,6 +85,8 @@ concepts:
     labels: [Debt FX, FX on debt, Переоценка долга]
   - id: fx.ppe
     labels: [PPE FX, FX on PPE, Переоценка ОС]
+  - id: fx.equity
+    labels: [Equity FX, FX on equity, Переоценка капитала]
   - id: cov.dscr
     labels: [DSCR, Debt service coverage, Коэффициент покрытия долга]
   - id: cov.llcr
