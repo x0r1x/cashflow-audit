@@ -31,6 +31,7 @@ REPAY_SHARE = 0.30
 REV_LIFT = 0.20
 FCF_DROP = -0.20
 _WC = ("bs.ar", "bs.inventory", "bs.ap")
+_COVERAGE = (("dscr", "cov.dscr"), ("llcr", "cov.llcr"), ("plcr", "cov.plcr"))
 
 
 def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
@@ -335,22 +336,26 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         refs = [*e_refs, *i_refs]
         if worst is None or icr < worst[1]:
             worst = (key, icr, refs)
-    dscr_min, dscr_flag = _coverage_extrema(ctx, totals.get("cov.dscr"))
-    llcr_min, llcr_flag = _coverage_extrema(ctx, totals.get("cov.llcr"))
-    if dscr_flag is not None or llcr_flag is not None:
+    extrema = {
+        metric: _coverage_extrema(ctx, totals.get(concept))
+        for metric, concept in _COVERAGE
+    }
+    mins = {metric: pair[0] for metric, pair in extrema.items()}
+    flags = {metric: pair[1] for metric, pair in extrema.items()}
+    if any(flags.values()):
         refs: list[str] = []
-        metrics: dict = {"dscr": dscr_min, "llcr": llcr_min}
+        metrics: dict = dict(mins)
         period_key = None
-        if dscr_flag is not None:
-            key, val, cov_refs = dscr_flag
+        worst_cov: float | None = None
+        for metric, _concept in _COVERAGE:
+            flag = flags[metric]
+            if flag is None:
+                continue
+            key, val, cov_refs = flag
             refs.extend(cov_refs)
-            metrics["dscr"] = val
-            period_key = key
-        if llcr_flag is not None:
-            key, val, cov_refs = llcr_flag
-            refs.extend(cov_refs)
-            metrics["llcr"] = val
-            if period_key is None or (dscr_flag is not None and val < dscr_flag[1]):
+            metrics[metric] = val
+            if worst_cov is None or val < worst_cov:
+                worst_cov = val
                 period_key = key
         if worst is not None:
             refs = _uniq([*refs, *worst[2]])
@@ -360,16 +365,14 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         metrics["period_key"] = period_key
         return _finish(spec_id, name, refs, metrics, "leverage", "high")
     if worst is None:
-        return _finish(
-            spec_id, name, [], {"dscr": dscr_min, "llcr": llcr_min}, "leverage", "medium"
-        )
+        return _finish(spec_id, name, [], mins, "leverage", "medium")
     key, icr, refs = worst
     priority = "high" if icr < ICR_HIGH else "medium"
     return _finish(
         spec_id,
         name,
         refs,
-        {"icr": icr, "period_key": key, "dscr": dscr_min, "llcr": llcr_min},
+        {"icr": icr, "period_key": key, **mins},
         "leverage",
         priority,
     )
