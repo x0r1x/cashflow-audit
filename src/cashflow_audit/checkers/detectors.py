@@ -425,6 +425,35 @@ def detect_conflicting_rate(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_conflicting_fx(ctx: CheckContext) -> list[Candidate]:
+    rows = [row for row in ctx.mapping.rows if row.concept_id == "fx.rate"]
+    if len(rows) < 2:
+        return []
+    found: list[Candidate] = []
+    for left, right in combinations(rows, 2):
+        left_cols = _header_cols(ctx, left)
+        right_cols = _header_cols(ctx, right)
+        for key in sorted(set(left_cols) & set(right_cols)):
+            left_v = _cell_number(ctx, left, left_cols[key])
+            right_v = _cell_number(ctx, right, right_cols[key])
+            if left_v is None or right_v is None:
+                continue
+            if abs(left_v - right_v) <= 1e-6:
+                continue
+            found.append(
+                Candidate(
+                    detector="conflicting_fx",
+                    cell_refs=[
+                        _mapped_ref(left, left_cols[key]),
+                        _mapped_ref(right, right_cols[key]),
+                    ],
+                    payload={"period_key": key},
+                    base_severity="warning",
+                )
+            )
+    return found
+
+
 def detect_below_breakeven(ctx: CheckContext) -> list[Candidate]:
     volume = _mapped_concept(ctx, "pnl.volume")
     price = _mapped_concept(ctx, "pnl.price")

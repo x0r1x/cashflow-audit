@@ -75,3 +75,5 @@ concepts:
     labels: [WACC, Discount rate, Ставка дисконта]
   - id: ops.headcount
     labels: [Headcount, FTE, Численность]
+  - id: fx.rate
+    labels: [FX rate, Exchange rate, Курс валюты]

@@ -309,6 +309,7 @@ Label column — левая видимая строковая в блоке (ski
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | `stress_rate_unchanged` | Downside режет выручку, mapped ставка не выше Base; нет ставки — молчит |
 | `conflicting_rate` | два mapped `pnl.tax_rate` / `pnl.interest_rate` на один period_key, значения разные; 20 vs 0.20 не конфликт |
+| `conflicting_fx` | два mapped `fx.rate` на один period_key, значения разные; 80 vs 0.80 конфликт (не `_as_rate`); USD/RUB не выдумываем |
 | `below_breakeven` | Q×P − COGS < OPEX если volume, price, cogs, opex mapped; нет драйвера — молчит, не HITL и не выручка вместо Q×P |
 | `negative_npv` | mapped `val.npv` < 0 → warning; нет строки — молчит, не HITL, не считает NPV из FCF и не 12% WACC |
 | `irr_below_wacc` | mapped IRR < mapped WACC после `_as_rate`; нет WACC — молчит, не HITL и не 12% |
