@@ -1487,3 +1487,105 @@ def test_i4_without_price_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I4"]
     assert any("I4" in (q.prompt or "") for q in result.questions)
+
+
+def test_i6_ebitda_bridge_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=4, label="OPEX"),
+            LayoutRow(row=5, label="EBITDA"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 4, "OPEX", "pnl.opex", role="calculation"),
+            mapped("P&L", 5, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B4", "30"),
+                cell("P&L", "B5", "40"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I6"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B5" in found[0].cell_refs
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B4" in found[0].cell_refs
+
+
+def test_i6_ebitda_bridge_balanced_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=4, label="OPEX"),
+            LayoutRow(row=5, label="EBITDA"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 4, "OPEX", "pnl.opex", role="calculation"),
+            mapped("P&L", 5, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B4", "30"),
+                cell("P&L", "B5", "30"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I6"]
+
+
+def test_i6_without_opex_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="COGS"),
+            LayoutRow(row=5, label="EBITDA"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 5, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "40"),
+                cell("P&L", "B5", "40"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I6"]
+    assert not any("I6" in (q.prompt or "") for q in result.questions)
