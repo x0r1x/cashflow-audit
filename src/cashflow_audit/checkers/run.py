@@ -5,6 +5,7 @@ from cashflow_audit.checkers.detectors import (
     detect_agg_double_count,
     detect_agg_range_gap,
     detect_circular,
+    detect_conflicting_rate,
     detect_error_masking,
     detect_excel_error,
     detect_external_link,
@@ -37,6 +38,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_hidden_input(ctx))
     candidates.extend(detect_scenario_switch(ctx))
     candidates.extend(detect_stress_rate_unchanged(ctx))
+    candidates.extend(detect_conflicting_rate(ctx))
     identity, questions = detect_identities(ctx)
     candidates.extend(identity)
     candidates = _dedup(candidates)

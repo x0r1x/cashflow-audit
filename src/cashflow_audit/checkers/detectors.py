@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from itertools import combinations
+
 from cashflow_audit.checkers.astutil import ERROR_TOKENS, as_number, has_func, parse_ast, sum_ranges
 from cashflow_audit.checkers.context import CheckContext
 from cashflow_audit.checkers.models import Candidate
@@ -20,6 +22,8 @@ KIND_TO_DETECTOR = {
     "source_sheet_change": "source_switch",
 }
 UNUSED_CAP = 50
+RATE_CONCEPTS = frozenset({"pnl.tax_rate", "pnl.interest_rate"})
+_SNAPSHOT_ROLES = frozenset({"historical", "forecast", "stub", "scenario"})
 
 
 def detect_excel_error(ctx: CheckContext) -> list[Candidate]:
@@ -386,6 +390,48 @@ def detect_stress_rate_unchanged(ctx: CheckContext) -> list[Candidate]:
                     base_severity="warning",
                 )
             )
+    return found
+
+
+def detect_conflicting_rate(ctx: CheckContext) -> list[Candidate]:
+    found: list[Candidate] = []
+    for concept_id in RATE_CONCEPTS:
+        rows = [row for row in ctx.mapping.rows if row.concept_id == concept_id]
+        if len(rows) < 2:
+            continue
+        for left, right in combinations(rows, 2):
+            left_cols = _header_cols(ctx, left)
+            right_cols = _header_cols(ctx, right)
+            for key in sorted(set(left_cols) & set(right_cols)):
+                left_v = _cell_number(ctx, left, left_cols[key])
+                right_v = _cell_number(ctx, right, right_cols[key])
+                if left_v is None or right_v is None:
+                    continue
+                if abs(_as_rate(left_v) - _as_rate(right_v)) <= 1e-6:
+                    continue
+                found.append(
+                    Candidate(
+                        detector="conflicting_rate",
+                        cell_refs=[
+                            _mapped_ref(left, left_cols[key]),
+                            _mapped_ref(right, right_cols[key]),
+                        ],
+                        payload={"concept_id": concept_id, "period_key": key},
+                        base_severity="warning",
+                    )
+                )
+    return found
+
+
+def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
+    block = _block_for(ctx, row.sheet, row.row)
+    if block is None:
+        return {}
+    found: dict[str, int] = {}
+    for header in block.axis.headers:
+        if header.role not in _SNAPSHOT_ROLES:
+            continue
+        found[header.period_key] = header.col
     return found
 
 

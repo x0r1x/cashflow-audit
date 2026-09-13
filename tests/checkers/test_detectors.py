@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from cashflow_audit.checkers.run import run_checks
 from cashflow_audit.compile.models import Edge
-from cashflow_audit.layout.models import LayoutRow
+from cashflow_audit.layout.models import Layout, LayoutRow
 from cashflow_audit.mapping.models import MappingDocument
 from cashflow_audit.series.models import SeriesOutlier
 from tests.checkers.conftest import cell, ctx, headers, mapped, simple_layout
@@ -463,6 +463,96 @@ def test_stress_rate_without_rate_mapped_is_silent() -> None:
         )
     )
     assert not _detectors(result, "stress_rate_unchanged")
+
+
+def _stack(*layouts: Layout) -> Layout:
+    return Layout(sheets=[sheet for layout in layouts for sheet in layout.sheets])
+
+
+def test_conflicting_rate_tax_inputs_vs_pnl_is_warning() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Tax rate")],
+            sheet="Inputs",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Tax rate")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Inputs", 2, "Tax rate", "pnl.tax_rate", role="assumption"),
+            mapped("P&L", 2, "Tax rate", "pnl.tax_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Inputs", "B2", "0.20"),
+                cell("P&L", "B2", "0.24"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "conflicting_rate")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "Inputs!B2" in found[0].cell_refs
+    assert "P&L!B2" in found[0].cell_refs
+
+
+def test_conflicting_rate_percent_vs_fraction_is_silent() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Tax rate")],
+            sheet="Inputs",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Tax rate")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Inputs", 2, "Tax rate", "pnl.tax_rate", role="assumption"),
+            mapped("P&L", 2, "Tax rate", "pnl.tax_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Inputs", "B2", "20"),
+                cell("P&L", "B2", "0.20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "conflicting_rate")
+
+
+def test_conflicting_rate_single_mapping_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Tax rate")],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Tax rate", "pnl.tax_rate", role="assumption")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "0.20")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "conflicting_rate")
 
 
 def test_dedup_same_detector_and_refs() -> None:
