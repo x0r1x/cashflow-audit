@@ -294,6 +294,7 @@ def test_f07_icr_below_floor_is_flagged() -> None:
     assert row.status == "flagged"
     assert row.metrics.get("dscr") is None
     assert row.metrics.get("llcr") is None
+    assert row.metrics.get("plcr") is None
     issue = _issue(doc, "F07")
     assert issue.priority == "medium"
     assert issue.class_name == "leverage"
@@ -461,6 +462,90 @@ def test_f07_mapped_llcr_above_one_is_clear() -> None:
     row = _control(doc, "F07")
     assert row.status == "clear"
     assert row.metrics.get("llcr") == 1.3
+    assert not any(i.control_id == "F07" for i in doc.issues)
+
+
+def test_f07_mapped_plcr_below_one_is_flagged() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=3, label="Interest")],
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="PLCR")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("Debt", 2, "PLCR", "cov.plcr", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "100"),
+            cell("P&L", "D2", "100"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "10"),
+            cell("Debt", "B2", "1.5"),
+            cell("Debt", "C2", "0.7"),
+            cell("Debt", "D2", "1.2"),
+        ],
+    )
+    row = _control(doc, "F07")
+    assert row.status == "flagged"
+    assert row.metrics.get("plcr") == 0.7
+    assert row.metrics.get("dscr") is None
+    assert row.metrics.get("llcr") is None
+    issue = _issue(doc, "F07")
+    assert "Debt!C2" in issue.cell_refs
+    assert issue.priority == "high"
+
+
+def test_f07_mapped_plcr_above_one_is_clear() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=3, label="Interest")],
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="PLCR")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("Debt", 2, "PLCR", "cov.plcr", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "100"),
+            cell("P&L", "D2", "100"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "10"),
+            cell("Debt", "B2", "1.5"),
+            cell("Debt", "C2", "1.2"),
+            cell("Debt", "D2", "1.6"),
+        ],
+    )
+    row = _control(doc, "F07")
+    assert row.status == "clear"
+    assert row.metrics.get("plcr") == 1.2
     assert not any(i.control_id == "F07" for i in doc.issues)
 
 

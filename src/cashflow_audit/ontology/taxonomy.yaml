@@ -81,3 +81,5 @@ concepts:
     labels: [DSCR, Debt service coverage, Коэффициент покрытия долга]
   - id: cov.llcr
     labels: [LLCR, Loan life coverage, Коэффициент покрытия за срок кредита]
+  - id: cov.plcr
+    labels: [PLCR, Project life coverage, Коэффициент покрытия за срок проекта]

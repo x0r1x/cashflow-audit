@@ -373,7 +373,7 @@ FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в кни
 
 ### 8.7.1 F01–F14 (кратко)
 
-F01 выручка (падение / обрыв факт→прогноз / план-факт ≥10%). F02 EBITDA/маржа. F03 убытки ≥2 периода. F04 NI vs CFO vs FCF, cause `ops|wc_ar|wc_ap|capex|dividends`. F05 DSO от выручки, DIO/DPO от COGS. F06 Net Debt/EBITDA. F07 ICR = EBITDA/|interest|; mapped `cov.dscr`/`cov.llcr` < 1.0 → flagged, иначе `None`, PLCR не выдумываем. F08 min cash, runway, cash plug (плоский EoP + drawdown). F09 концентрация погашений ≥30%. F10 FX без mapped `fx.rate` → insufficient; курс есть → clear, USD/RUB не выдумываем. F11 прогноз vs история ≥15 п.п. F12 выручка vs FCF. F13 дивиденды vs FCFF/FCFE. F14 headroom без mapped `covenant.headroom` → insufficient; ≤ 0 → flagged; 3.5x не выдумываем.
+F01 выручка (падение / обрыв факт→прогноз / план-факт ≥10%). F02 EBITDA/маржа. F03 убытки ≥2 периода. F04 NI vs CFO vs FCF, cause `ops|wc_ar|wc_ap|capex|dividends`. F05 DSO от выручки, DIO/DPO от COGS. F06 Net Debt/EBITDA. F07 ICR = EBITDA/|interest|; mapped `cov.dscr`/`cov.llcr`/`cov.plcr` < 1.0 → flagged, иначе `None`, из CFADS не считаем. F08 min cash, runway, cash plug (плоский EoP + drawdown). F09 концентрация погашений ≥30%. F10 FX без mapped `fx.rate` → insufficient; курс есть → clear, USD/RUB не выдумываем. F11 прогноз vs история ≥15 п.п. F12 выручка vs FCF. F13 дивиденды vs FCFF/FCFE. F14 headroom без mapped `covenant.headroom` → insufficient; ≤ 0 → flagged; 3.5x не выдумываем.
 
 ### 8.8 lineage
 
