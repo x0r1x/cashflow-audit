@@ -59,6 +59,8 @@ concepts:
     labels: [CAPEX, Capital expenditure]
   - id: cf.dividends
     labels: [Dividends, Дивиденды]
+  - id: cf.equity_issue
+    labels: [Equity issue, Share issue, Эмиссия]
   - id: cf.fcf
     labels: [FCF, Free cash flow, Net CF before financing, CF before financing]
   - id: cf.repayment

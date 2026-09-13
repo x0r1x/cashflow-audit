@@ -1860,3 +1860,96 @@ def test_i13_dividends_without_equity_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I13"]
     assert any("I13" in (q.prompt or "") for q in result.questions)
+
+
+def test_i13_mapped_issue_explains_gap_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="Equity")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="NI")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [
+                LayoutRow(row=2, label="Div"),
+                LayoutRow(row=3, label="Equity issue"),
+            ],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Equity", "bs.equity", role="output"),
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "Div", "cf.dividends", role="calculation"),
+            mapped("CF", 3, "Equity issue", "cf.equity_issue", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "125"),
+                cell("P&L", "C2", "20"),
+                cell("CF", "C2", "10"),
+                cell("CF", "C3", "15"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I13"]
+
+
+def test_i13_mapped_issue_still_broken_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="Equity")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="NI")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [
+                LayoutRow(row=2, label="Div"),
+                LayoutRow(row=3, label="Equity issue"),
+            ],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Equity", "bs.equity", role="output"),
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "Div", "cf.dividends", role="calculation"),
+            mapped("CF", 3, "Equity issue", "cf.equity_issue", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "140"),
+                cell("P&L", "C2", "20"),
+                cell("CF", "C2", "10"),
+                cell("CF", "C3", "15"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I13"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "CF!C3" in found[0].cell_refs
