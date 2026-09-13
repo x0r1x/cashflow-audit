@@ -602,9 +602,37 @@ def handle_f14(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     metrics: dict = {}
     if cash_vals:
         metrics["min_cash"] = min(cash_vals)
-    return (
-        _insufficient(spec_id, name, metrics=metrics, evidence="ковенанты не заданы"),
-        None,
+    headroom = book_totals(ctx).get("covenant.headroom")
+    if headroom is None:
+        return (
+            _insufficient(spec_id, name, metrics=metrics, evidence="ковенанты не заданы"),
+            None,
+        )
+    hr_slots = month_slots(ctx, headroom) or year_slots(ctx, headroom)
+    hr_vals: list[tuple[str, float, str]] = []
+    for key, cols in hr_slots:
+        val = cell_value(ctx, headroom, cols[0])
+        if val is None:
+            continue
+        hr_vals.append((key, val, cell_ref(headroom, cols[0])))
+    if not hr_vals:
+        return (
+            _insufficient(spec_id, name, metrics=metrics, evidence="ковенанты не заданы"),
+            None,
+        )
+    min_key, min_hr, min_ref = min(hr_vals, key=lambda item: item[1])
+    metrics["min_headroom"] = min_hr
+    metrics["period_key"] = min_key
+    if min_hr > 0.0:
+        return _finish(spec_id, name, [], metrics, "leverage", "high")
+    refs = [ref for _key, val, ref in hr_vals if val <= 0.0]
+    return _finish(
+        spec_id,
+        name,
+        _uniq(refs or [min_ref]),
+        metrics,
+        "leverage",
+        "high",
     )
 
 

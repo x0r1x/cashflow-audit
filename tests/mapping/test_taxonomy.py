@@ -15,6 +15,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "bs.ppe",
         "pnl.volume",
         "pnl.price",
+        "covenant.headroom",
     } <= ids
 
 
@@ -64,3 +65,13 @@ def test_volume_and_price_labels_are_specific() -> None:
     assert "sales" not in price
     assert "revenue" not in volume
     assert "revenue" not in price
+
+
+def test_covenant_headroom_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "covenant.headroom" in by_id
+    labels = {label.lower() for label in by_id["covenant.headroom"].labels}
+    assert "covenant headroom" in labels
+    assert "запас по ковенанту" in labels
+    assert "headroom" not in labels
+    assert "dscr" not in labels

@@ -385,3 +385,87 @@ def test_f14_without_covenants_is_insufficient() -> None:
     assert row.status == "insufficient"
     assert row.metrics.get("min_cash") == 40.0
     assert not any(i.control_id == "F14" for i in doc.issues)
+
+
+def test_f14_negative_headroom_is_flagged() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Cash")], sheet="BS", axis=YEARS
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Covenant headroom")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped(
+                "Debt",
+                2,
+                "Covenant headroom",
+                "covenant.headroom",
+                role="output",
+            ),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "80"),
+            cell("BS", "C2", "40"),
+            cell("BS", "D2", "60"),
+            cell("Debt", "B2", "10"),
+            cell("Debt", "C2", "-2"),
+            cell("Debt", "D2", "5"),
+        ],
+    )
+    row = _control(doc, "F14")
+    assert row.status == "flagged"
+    assert row.metrics.get("min_headroom") == -2.0
+    issue = _issue(doc, "F14")
+    assert "Debt!C2" in issue.cell_refs
+    assert issue.class_name == "leverage"
+
+
+def test_f14_positive_headroom_is_clear() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Cash")], sheet="BS", axis=YEARS
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Covenant headroom")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped(
+                "Debt",
+                2,
+                "Covenant headroom",
+                "covenant.headroom",
+                role="output",
+            ),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "80"),
+            cell("BS", "C2", "40"),
+            cell("BS", "D2", "60"),
+            cell("Debt", "B2", "10"),
+            cell("Debt", "C2", "8"),
+            cell("Debt", "D2", "12"),
+        ],
+    )
+    row = _control(doc, "F14")
+    assert row.status == "clear"
+    assert row.metrics.get("min_headroom") == 8.0
+    assert not any(i.control_id == "F14" for i in doc.issues)
