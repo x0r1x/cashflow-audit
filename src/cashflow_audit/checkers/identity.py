@@ -49,7 +49,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
-        candidates.extend(_i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div))
+        adj = group.get("bs.re_adj") or book.get("bs.re_adj")
+        candidates.extend(
+            _i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div, adj)
+        )
     if "cf.dividends" in book and "bs.equity" not in book:
         qn = _maybe_question(questions, qn, "I13", ("bs.equity",), book, ctx)
     elif "cf.dividends" in book and "pnl.net_income" not in book:
@@ -360,9 +363,11 @@ def _i3b(
     retained: MappedRow,
     ni: MappedRow,
     div: MappedRow | None,
+    adj: MappedRow | None = None,
 ) -> list[Candidate]:
     slots = _aligned(ctx, retained, ni)
     div_cols = _axis_cols(ctx, div) if div is not None else {}
+    adj_cols = _axis_cols(ctx, adj) if adj is not None else {}
     found: list[Candidate] = []
     for prev, cur in zip(slots, slots[1:], strict=False):
         _pkey, prev_cols = prev
@@ -371,14 +376,20 @@ def _i3b(
         closing = _value(ctx, retained, cur_cols[0])
         income = _value(ctx, ni, cur_cols[1])
         dividends = 0.0
+        adjusted = 0.0
         if div is not None and key in div_cols:
             part = _value(ctx, div, div_cols[key])
             if part is None:
                 continue
             dividends = part
+        if adj is not None and key in adj_cols:
+            part = _value(ctx, adj, adj_cols[key])
+            if part is None:
+                continue
+            adjusted = part
         if opening is None or closing is None or income is None:
             continue
-        expected = opening + income - dividends
+        expected = opening + income - dividends + adjusted
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
@@ -389,6 +400,8 @@ def _i3b(
         ]
         if div is not None and key in div_cols:
             refs.append(_cell_ref(div, div_cols[key]))
+        if adj is not None and key in adj_cols:
+            refs.append(_cell_ref(adj, adj_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I3b",
