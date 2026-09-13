@@ -150,12 +150,14 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         )
     qn = _maybe_question(questions, qn, "I12", I12_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I12_CONCEPTS):
+        deferred = group.get("pnl.deferred_tax") or book.get("pnl.deferred_tax")
         candidates.extend(
             _i12(
                 ctx,
                 group["pnl.tax"],
                 group["pnl.net_income"],
                 group["pnl.tax_rate"],
+                deferred,
             )
         )
     if "pnl.da" in book and "cf.da" not in book:
@@ -695,27 +697,43 @@ def _i12(
     tax: MappedRow,
     ni: MappedRow,
     rate: MappedRow,
+    deferred: MappedRow | None = None,
 ) -> list[Candidate]:
     found: list[Candidate] = []
+    deferred_cols = (
+        _axis_cols(ctx, deferred, roles=_IDENTITY_SNAPSHOT_ROLES)
+        if deferred is not None
+        else {}
+    )
     for key, cols in _aligned(ctx, tax, ni, rate, roles=_IDENTITY_SNAPSHOT_ROLES):
         got = _value(ctx, tax, cols[0])
         income = _value(ctx, ni, cols[1])
         raw_rate = _value(ctx, rate, cols[2])
+        extra = 0.0
+        if deferred is not None and key in deferred_cols:
+            part = _value(ctx, deferred, deferred_cols[key])
+            if part is None:
+                continue
+            extra = part
         if got is None or income is None or raw_rate is None:
             continue
-        expected = _as_rate(raw_rate) * (abs(income) + abs(got))
-        thresh = max(1.0, 0.001 * max(abs(got), abs(expected)))
-        if abs(abs(got) - abs(expected)) <= thresh:
+        total = got + extra
+        expected = _as_rate(raw_rate) * (abs(income) + abs(total))
+        thresh = max(1.0, 0.001 * max(abs(total), abs(expected)))
+        if abs(abs(total) - abs(expected)) <= thresh:
             continue
+        refs = [
+            _cell_ref(tax, cols[0]),
+            _cell_ref(ni, cols[1]),
+            _cell_ref(rate, cols[2]),
+        ]
+        if deferred is not None and key in deferred_cols:
+            refs.append(_cell_ref(deferred, deferred_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I12",
-                cell_refs=[
-                    _cell_ref(tax, cols[0]),
-                    _cell_ref(ni, cols[1]),
-                    _cell_ref(rate, cols[2]),
-                ],
-                payload={"col": cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                cell_refs=refs,
+                payload={"col": cols[0], "period_key": key, "delta": abs(total) - abs(expected)},
                 base_severity="error",
             )
         )

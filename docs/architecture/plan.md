@@ -336,7 +336,7 @@ I10: `opening + drawdown − repayment + mapped fx.debt = closing` по `bs.debt
 
 I11: `interest ≈ rate × среднее(opening, closing) долга`. Ставка > 1 трактуется как проценты (12 → 0.12). `period_key=YYYY-MM` → делить годовой купон на 12. Нет ставки или долга → Question, не выдуманный купон.
 
-I12: `tax ≈ rate × (NI + tax)` (прибыль до налога = NI + текущий налог). Ставка > 1 как проценты (25 → 0.25). Нет ставки, налога или NI → Question, не выдуманные 20%. Отложенный налог не выдумываем.
+I12: `(tax + mapped pnl.deferred_tax) ≈ rate × (NI + tax + deferred)` (прибыль до налога = NI + текущий + отложенный). Ставка > 1 как проценты (25 → 0.25). Нет ставки, налога или NI → Question, не выдуманные 20%. Нет deferred — не выдумываем.
 
 I13: `opening equity + NI − dividends + mapped cf.equity_issue = closing`. Дивиденды в ОДДС без капитала → Question. I3b смотрит RE; I13 — итог капитала. Нет эмиссии — не выдумываем. FX в I13 не выдумываем.
 
