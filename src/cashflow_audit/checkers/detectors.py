@@ -23,6 +23,9 @@ KIND_TO_DETECTOR = {
 }
 UNUSED_CAP = 50
 RATE_CONCEPTS = frozenset({"pnl.tax_rate", "pnl.interest_rate"})
+SCALE_SKIP = RATE_CONCEPTS | frozenset({"fx.rate", "val.wacc", "val.irr"})
+SCALE_FACTORS = (1000.0, 1_000_000.0)
+SCALE_BAND = 0.10
 _SNAPSHOT_ROLES = frozenset({"historical", "forecast", "stub", "scenario"})
 _TIME_ROLES = frozenset({"historical", "forecast", "stub"})
 VOL_GROWTH = 0.10
@@ -451,6 +454,44 @@ def detect_conflicting_fx(ctx: CheckContext) -> list[Candidate]:
                     base_severity="warning",
                 )
             )
+    return found
+
+
+def detect_scale_mismatch(ctx: CheckContext) -> list[Candidate]:
+    by_concept: dict[str, list[MappedRow]] = {}
+    for row in ctx.mapping.rows:
+        if not row.concept_id or row.concept_id in SCALE_SKIP:
+            continue
+        by_concept.setdefault(row.concept_id, []).append(row)
+    found: list[Candidate] = []
+    for concept_id, rows in by_concept.items():
+        if len(rows) < 2:
+            continue
+        for left, right in combinations(rows, 2):
+            left_cols = _header_cols(ctx, left)
+            right_cols = _header_cols(ctx, right)
+            for key in sorted(set(left_cols) & set(right_cols)):
+                left_v = _cell_number(ctx, left, left_cols[key])
+                right_v = _cell_number(ctx, right, right_cols[key])
+                if left_v is None or right_v is None:
+                    continue
+                lo, hi = abs(left_v), abs(right_v)
+                if min(lo, hi) == 0.0:
+                    continue
+                ratio = max(lo, hi) / min(lo, hi)
+                if not any(abs(ratio / factor - 1.0) <= SCALE_BAND for factor in SCALE_FACTORS):
+                    continue
+                found.append(
+                    Candidate(
+                        detector="scale_mismatch",
+                        cell_refs=[
+                            _mapped_ref(left, left_cols[key]),
+                            _mapped_ref(right, right_cols[key]),
+                        ],
+                        payload={"concept_id": concept_id, "period_key": key},
+                        base_severity="warning",
+                    )
+                )
     return found
 
 
