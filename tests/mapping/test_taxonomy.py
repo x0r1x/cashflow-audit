@@ -13,6 +13,8 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "pnl.tax_rate",
         "cf.da",
         "bs.ppe",
+        "pnl.volume",
+        "pnl.price",
     } <= ids
 
 
@@ -48,3 +50,17 @@ def test_ppe_labels_are_specific() -> None:
     assert "fixed assets" in labels
     assert "основные средства" in labels
     assert "assets" not in labels
+
+
+def test_volume_and_price_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    volume = {label.lower() for label in by_id["pnl.volume"].labels}
+    price = {label.lower() for label in by_id["pnl.price"].labels}
+    assert "volume" in volume
+    assert "объём" in volume
+    assert "price" in price
+    assert "цена" in price
+    assert "sales" not in volume
+    assert "sales" not in price
+    assert "revenue" not in volume
+    assert "revenue" not in price
