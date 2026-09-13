@@ -35,6 +35,7 @@ TRUST_DETECTORS = frozenset(
         "agg_double_count",
         "scenario_switch",
         "stress_rate_unchanged",
+        "conflicting_rate",
         "hidden_input",
         "external_link",
     }
