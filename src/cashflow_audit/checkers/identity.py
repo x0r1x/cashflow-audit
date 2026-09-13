@@ -13,6 +13,7 @@ I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I4_CONCEPTS = ("pnl.revenue", "pnl.volume", "pnl.price")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
+I6_CONCEPTS = ("pnl.ebitda", "pnl.revenue", "pnl.cogs", "pnl.opex")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
 I8_CONCEPTS = ("pnl.da", "cf.da")
 I8B_STOCK = ("bs.ppe",)
@@ -67,6 +68,16 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
                 group["pnl.gross_profit"],
                 group["pnl.revenue"],
                 group["pnl.cogs"],
+            )
+        )
+    for group in _groups(by_block, book, I6_CONCEPTS):
+        candidates.extend(
+            _i6(
+                ctx,
+                group["pnl.ebitda"],
+                group["pnl.revenue"],
+                group["pnl.cogs"],
+                group["pnl.opex"],
             )
         )
     qn = _maybe_question(questions, qn, "I7", I7_CONCEPTS, book, ctx)
@@ -520,6 +531,44 @@ def _i11(
                     _cell_ref(rate, cur_cols[2]),
                 ],
                 payload={"col": cur_cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i6(
+    ctx: CheckContext,
+    ebitda: MappedRow,
+    revenue: MappedRow,
+    cogs: MappedRow,
+    opex: MappedRow,
+) -> list[Candidate]:
+    found: list[Candidate] = []
+    for key, cols in _aligned(
+        ctx, ebitda, revenue, cogs, opex, roles=_IDENTITY_SNAPSHOT_ROLES
+    ):
+        got = _value(ctx, ebitda, cols[0])
+        rev = _value(ctx, revenue, cols[1])
+        cost = _value(ctx, cogs, cols[2])
+        opex_v = _value(ctx, opex, cols[3])
+        if got is None or rev is None or cost is None or opex_v is None:
+            continue
+        expected = rev - cost - opex_v
+        thresh = max(1.0, 0.001 * max(abs(got), abs(rev)))
+        delta = got - expected
+        if abs(delta) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I6",
+                cell_refs=[
+                    _cell_ref(ebitda, cols[0]),
+                    _cell_ref(revenue, cols[1]),
+                    _cell_ref(cogs, cols[2]),
+                    _cell_ref(opex, cols[3]),
+                ],
+                payload={"col": cols[0], "period_key": key, "delta": delta},
                 base_severity="error",
             )
         )
