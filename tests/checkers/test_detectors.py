@@ -718,6 +718,95 @@ def test_npv_without_mapping_is_silent() -> None:
     assert not any("npv" in (q.prompt or "").casefold() for q in result.questions)
 
 
+def test_irr_below_mapped_wacc_is_warning() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="IRR")],
+            sheet="Val",
+            axis=headers((2, "Base", "scenario")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="WACC")],
+            sheet="Inputs",
+            axis=headers((2, "Base", "scenario")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Val", 2, "IRR", "val.irr", role="output"),
+            mapped("Inputs", 2, "WACC", "val.wacc", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Val", "B2", "0.08"),
+                cell("Inputs", "B2", "0.12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "irr_below_wacc")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "Val!B2" in found[0].cell_refs
+    assert "Inputs!B2" in found[0].cell_refs
+
+
+def test_irr_above_wacc_is_silent() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="IRR")],
+            sheet="Val",
+            axis=headers((2, "Base", "scenario")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="WACC")],
+            sheet="Inputs",
+            axis=headers((2, "Base", "scenario")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Val", 2, "IRR", "val.irr", role="output"),
+            mapped("Inputs", 2, "WACC", "val.wacc", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Val", "B2", "0.15"),
+                cell("Inputs", "B2", "0.12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "irr_below_wacc")
+
+
+def test_irr_without_wacc_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="IRR")],
+        sheet="Val",
+        axis=headers((2, "Base", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("Val", 2, "IRR", "val.irr", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("Val", "B2", "0.08")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "irr_below_wacc")
+    assert not any("wacc" in (q.prompt or "").casefold() for q in result.questions)
+    assert not any("irr" in (q.prompt or "").casefold() for q in result.questions)
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(

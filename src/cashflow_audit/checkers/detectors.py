@@ -489,6 +489,35 @@ def detect_negative_npv(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_irr_below_wacc(ctx: CheckContext) -> list[Candidate]:
+    irr = _mapped_concept(ctx, "val.irr")
+    wacc = _mapped_concept(ctx, "val.wacc")
+    if irr is None or wacc is None:
+        return []
+    irr_cols = _header_cols(ctx, irr)
+    wacc_cols = _header_cols(ctx, wacc)
+    found: list[Candidate] = []
+    for key in sorted(set(irr_cols) & set(wacc_cols)):
+        irr_v = _cell_number(ctx, irr, irr_cols[key])
+        wacc_v = _cell_number(ctx, wacc, wacc_cols[key])
+        if irr_v is None or wacc_v is None:
+            continue
+        if _as_rate(irr_v) + 1e-9 >= _as_rate(wacc_v):
+            continue
+        found.append(
+            Candidate(
+                detector="irr_below_wacc",
+                cell_refs=[
+                    _mapped_ref(irr, irr_cols[key]),
+                    _mapped_ref(wacc, wacc_cols[key]),
+                ],
+                payload={"period_key": key},
+                base_severity="warning",
+            )
+        )
+    return found
+
+
 def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     block = _block_for(ctx, row.sheet, row.row)
     if block is None:

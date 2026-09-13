@@ -17,6 +17,8 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "pnl.price",
         "covenant.headroom",
         "val.npv",
+        "val.irr",
+        "val.wacc",
     } <= ids
 
 
@@ -88,3 +90,21 @@ def test_npv_labels_are_specific() -> None:
     assert "value" not in labels
     assert "irr" not in labels
     assert "wacc" not in labels
+
+
+def test_irr_and_wacc_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "val.irr" in by_id
+    assert "val.wacc" in by_id
+    irr = {label.lower() for label in by_id["val.irr"].labels}
+    wacc = {label.lower() for label in by_id["val.wacc"].labels}
+    assert "irr" in irr
+    assert "internal rate of return" in irr
+    assert "внд" in irr
+    assert "wacc" in wacc
+    assert "discount rate" in wacc
+    assert "ставка дисконта" in wacc
+    assert "rate" not in irr
+    assert "rate" not in wacc
+    assert "npv" not in irr
+    assert "npv" not in wacc

@@ -69,3 +69,7 @@ concepts:
     labels: [Covenant headroom, Headroom to covenant, Запас по ковенанту]
   - id: val.npv
     labels: [NPV, Net present value, ЧПС]
+  - id: val.irr
+    labels: [IRR, Internal rate of return, ВНД]
+  - id: val.wacc
+    labels: [WACC, Discount rate, Ставка дисконта]
