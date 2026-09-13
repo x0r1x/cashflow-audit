@@ -25,6 +25,8 @@ concepts:
     labels: [Interest rate, Ставка процента, Coupon rate]
   - id: pnl.tax
     labels: [Income tax, Налог]
+  - id: pnl.deferred_tax
+    labels: [Deferred tax, Deferred tax expense, Отложенный налог]
   - id: pnl.tax_rate
     labels: [Tax rate, Ставка налога, Effective tax rate]
   - id: pnl.net_income

@@ -1278,6 +1278,77 @@ def test_i12_without_rate_is_question_not_finding() -> None:
     assert any("I12" in (q.prompt or "") for q in result.questions)
 
 
+def test_i12_mapped_deferred_explains_gap_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Tax"),
+            LayoutRow(row=3, label="NI"),
+            LayoutRow(row=4, label="Rate"),
+            LayoutRow(row=5, label="Deferred tax"),
+        ],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Tax", "pnl.tax", role="calculation"),
+            mapped("P&L", 3, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 4, "Rate", "pnl.tax_rate", role="assumption"),
+            mapped("P&L", 5, "Deferred tax", "pnl.deferred_tax", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "20"),
+                cell("P&L", "B3", "75"),
+                cell("P&L", "B4", "0.25"),
+                cell("P&L", "B5", "5"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I12"]
+
+
+def test_i12_mapped_deferred_still_broken_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Tax"),
+            LayoutRow(row=3, label="NI"),
+            LayoutRow(row=4, label="Rate"),
+            LayoutRow(row=5, label="Deferred tax"),
+        ],
+        sheet="P&L",
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Tax", "pnl.tax", role="calculation"),
+            mapped("P&L", 3, "NI", "pnl.net_income", role="output"),
+            mapped("P&L", 4, "Rate", "pnl.tax_rate", role="assumption"),
+            mapped("P&L", 5, "Deferred tax", "pnl.deferred_tax", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "20"),
+                cell("P&L", "B3", "70"),
+                cell("P&L", "B4", "0.25"),
+                cell("P&L", "B5", "5"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I12"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B5" in found[0].cell_refs
+
+
 def test_i8_da_addback_mismatch_is_error() -> None:
     layout = _stack_identity(
         simple_layout(
