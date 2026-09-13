@@ -67,3 +67,5 @@ concepts:
     labels: [Proceeds, Drawdown, Выборки]
   - id: covenant.headroom
     labels: [Covenant headroom, Headroom to covenant, Запас по ковенанту]
+  - id: val.npv
+    labels: [NPV, Net present value, ЧПС]

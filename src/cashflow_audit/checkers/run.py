@@ -11,6 +11,7 @@ from cashflow_audit.checkers.detectors import (
     detect_excel_error,
     detect_external_link,
     detect_hidden_input,
+    detect_negative_npv,
     detect_scenario_switch,
     detect_series,
     detect_stress_rate_unchanged,
@@ -41,6 +42,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_stress_rate_unchanged(ctx))
     candidates.extend(detect_conflicting_rate(ctx))
     candidates.extend(detect_below_breakeven(ctx))
+    candidates.extend(detect_negative_npv(ctx))
     identity, questions = detect_identities(ctx)
     candidates.extend(identity)
     candidates = _dedup(candidates)
