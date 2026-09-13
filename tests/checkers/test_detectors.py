@@ -555,6 +555,108 @@ def test_conflicting_rate_single_mapping_is_silent() -> None:
     assert not _detectors(result, "conflicting_rate")
 
 
+def test_conflicting_fx_two_quotes_is_warning() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="Inputs",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Inputs", 2, "FX rate", "fx.rate", role="assumption"),
+            mapped("P&L", 2, "FX rate", "fx.rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Inputs", "B2", "80"),
+                cell("P&L", "B2", "85"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "conflicting_fx")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "Inputs!B2" in found[0].cell_refs
+    assert "P&L!B2" in found[0].cell_refs
+
+
+def test_conflicting_fx_does_not_treat_as_percent() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="Inputs",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Inputs", 2, "FX rate", "fx.rate", role="assumption"),
+            mapped("P&L", 2, "FX rate", "fx.rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Inputs", "B2", "80"),
+                cell("P&L", "B2", "0.80"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "conflicting_fx")
+    assert found
+    assert found[0].base_severity == "warning"
+
+
+def test_conflicting_fx_same_quote_is_silent() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="Inputs",
+            axis=headers((2, "2023", "historical")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("Inputs", 2, "FX rate", "fx.rate", role="assumption"),
+            mapped("P&L", 2, "FX rate", "fx.rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("Inputs", "B2", "80"),
+                cell("P&L", "B2", "80"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "conflicting_fx")
+
+
 def test_below_breakeven_contribution_below_opex_is_warning() -> None:
     layout = simple_layout(
         [

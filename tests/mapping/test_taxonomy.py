@@ -20,6 +20,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "val.irr",
         "val.wacc",
         "ops.headcount",
+        "fx.rate",
     } <= ids
 
 
@@ -121,3 +122,15 @@ def test_headcount_labels_are_specific() -> None:
     assert "staff" not in labels
     assert "employees" not in labels
     assert "opex" not in labels
+
+
+def test_fx_rate_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "fx.rate" in by_id
+    labels = {label.lower() for label in by_id["fx.rate"].labels}
+    assert "fx rate" in labels
+    assert "exchange rate" in labels
+    assert "курс валюты" in labels
+    assert "rate" not in labels
+    assert "курс" not in labels
+    assert "usd/rub" not in labels
