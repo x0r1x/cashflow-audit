@@ -164,9 +164,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     for group in _groups(by_block, book, I8B_STOCK):
         capex = group.get("cf.capex") or book.get("cf.capex")
         da = group.get("pnl.da") or book.get("pnl.da")
+        fx = group.get("fx.ppe") or book.get("fx.ppe")
         if capex is None and da is None:
             continue
-        candidates.extend(_i8b(ctx, group["bs.ppe"], capex, da))
+        candidates.extend(_i8b(ctx, group["bs.ppe"], capex, da, fx))
     return candidates, questions
 
 
@@ -704,10 +705,12 @@ def _i8b(
     ppe: MappedRow,
     capex: MappedRow | None,
     da: MappedRow | None,
+    fx: MappedRow | None = None,
 ) -> list[Candidate]:
     slots = _aligned(ctx, ppe)
     capex_cols = _axis_cols(ctx, capex) if capex is not None else {}
     da_cols = _axis_cols(ctx, da) if da is not None else {}
+    fx_cols = _axis_cols(ctx, fx) if fx is not None else {}
     found: list[Candidate] = []
     for prev, cur in zip(slots, slots[1:], strict=False):
         _pkey, prev_cols = prev
@@ -716,6 +719,7 @@ def _i8b(
         closing = _value(ctx, ppe, cur_cols[0])
         spent = 0.0
         depreciated = 0.0
+        fx_amt = 0.0
         if capex is not None and key in capex_cols:
             part = _value(ctx, capex, capex_cols[key])
             if part is None:
@@ -726,9 +730,14 @@ def _i8b(
             if part is None:
                 continue
             depreciated = part
+        if fx is not None and key in fx_cols:
+            part = _value(ctx, fx, fx_cols[key])
+            if part is None:
+                continue
+            fx_amt = part
         if opening is None or closing is None:
             continue
-        expected = opening + abs(spent) - abs(depreciated)
+        expected = opening + abs(spent) - abs(depreciated) + fx_amt
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
@@ -737,6 +746,8 @@ def _i8b(
             refs.append(_cell_ref(capex, capex_cols[key]))
         if da is not None and key in da_cols:
             refs.append(_cell_ref(da, da_cols[key]))
+        if fx is not None and key in fx_cols:
+            refs.append(_cell_ref(fx, fx_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I8b",
