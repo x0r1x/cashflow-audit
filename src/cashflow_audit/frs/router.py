@@ -49,6 +49,7 @@ _IDENTITY_CAP = {
     "identity.I1": ("F06", "F08"),
     "identity.I3a": ("F04", "F08"),
     "identity.I3b": ("F13",),
+    "identity.I13": ("F13",),
 }
 
 
