@@ -12,6 +12,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "pnl.interest_rate",
         "pnl.tax_rate",
         "cf.da",
+        "bs.ppe",
     } <= ids
 
 
@@ -38,3 +39,12 @@ def test_cf_da_labels_are_addback_not_generic_depreciation() -> None:
     assert "depreciation add-back" in labels
     assert "depreciation" not in labels
     assert "амортизация" not in labels
+
+
+def test_ppe_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    labels = {label.lower() for label in by_id["bs.ppe"].labels}
+    assert "ppe" in labels
+    assert "fixed assets" in labels
+    assert "основные средства" in labels
+    assert "assets" not in labels

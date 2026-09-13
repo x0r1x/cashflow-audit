@@ -1152,3 +1152,109 @@ def test_i8_without_cf_addback_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I8"]
     assert any("I8" in (q.prompt or "") for q in result.questions)
+
+
+def test_i8b_ppe_rollforward_break_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="PPE")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "90"),
+                cell("CF", "C2", "20"),
+                cell("P&L", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I8b"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!B2" in found[0].cell_refs
+    assert "BS!C2" in found[0].cell_refs
+    assert "CF!C2" in found[0].cell_refs
+    assert "P&L!C2" in found[0].cell_refs
+
+
+def test_i8b_negative_capex_balanced_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [LayoutRow(row=2, label="PPE")],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="D&A")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+            mapped("P&L", 2, "D&A", "pnl.da", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "110"),
+                cell("CF", "C2", "-20"),
+                cell("P&L", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8b"]
+
+
+def test_i8b_without_flows_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="PPE")],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("BS", 2, "PPE", "bs.ppe", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("BS", "B2", "100"), cell("BS", "C2", "110")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8b"]
+    assert any("I8b" in (q.prompt or "") for q in result.questions)
