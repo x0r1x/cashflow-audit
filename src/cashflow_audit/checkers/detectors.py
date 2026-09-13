@@ -423,6 +423,50 @@ def detect_conflicting_rate(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_below_breakeven(ctx: CheckContext) -> list[Candidate]:
+    volume = _mapped_concept(ctx, "pnl.volume")
+    price = _mapped_concept(ctx, "pnl.price")
+    cogs = _mapped_concept(ctx, "pnl.cogs")
+    opex = _mapped_concept(ctx, "pnl.opex")
+    if volume is None or price is None or cogs is None or opex is None:
+        return []
+    vol_cols = _header_cols(ctx, volume)
+    price_cols = _header_cols(ctx, price)
+    cogs_cols = _header_cols(ctx, cogs)
+    opex_cols = _header_cols(ctx, opex)
+    keys = set(vol_cols) & set(price_cols) & set(cogs_cols) & set(opex_cols)
+    found: list[Candidate] = []
+    for key in sorted(keys):
+        qty = _cell_number(ctx, volume, vol_cols[key])
+        unit = _cell_number(ctx, price, price_cols[key])
+        cost = _cell_number(ctx, cogs, cogs_cols[key])
+        fixed = _cell_number(ctx, opex, opex_cols[key])
+        if None in (qty, unit, cost, fixed):
+            continue
+        contribution = abs(qty) * abs(unit) - abs(cost)
+        opex_abs = abs(fixed)
+        thresh = max(1.0, 0.001 * max(abs(contribution), opex_abs))
+        if contribution + thresh >= opex_abs:
+            continue
+        found.append(
+            Candidate(
+                detector="below_breakeven",
+                cell_refs=[
+                    _mapped_ref(volume, vol_cols[key]),
+                    _mapped_ref(price, price_cols[key]),
+                    _mapped_ref(cogs, cogs_cols[key]),
+                    _mapped_ref(opex, opex_cols[key]),
+                ],
+                payload={
+                    "period_key": key,
+                    "delta": contribution - opex_abs,
+                },
+                base_severity="warning",
+            )
+        )
+    return found
+
+
 def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     block = _block_for(ctx, row.sheet, row.row)
     if block is None:

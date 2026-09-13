@@ -555,6 +555,109 @@ def test_conflicting_rate_single_mapping_is_silent() -> None:
     assert not _detectors(result, "conflicting_rate")
 
 
+def test_below_breakeven_contribution_below_opex_is_warning() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Volume"),
+            LayoutRow(row=3, label="Price"),
+            LayoutRow(row=4, label="COGS"),
+            LayoutRow(row=5, label="OPEX"),
+        ],
+        axis=headers((2, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 3, "Price", "pnl.price", role="assumption"),
+            mapped("P&L", 4, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 5, "OPEX", "pnl.opex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "B3", "10"),
+                cell("P&L", "B4", "40"),
+                cell("P&L", "B5", "80"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "below_breakeven")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B3" in found[0].cell_refs
+    assert "P&L!B4" in found[0].cell_refs
+    assert "P&L!B5" in found[0].cell_refs
+
+
+def test_below_breakeven_contribution_covers_opex_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Volume"),
+            LayoutRow(row=3, label="Price"),
+            LayoutRow(row=4, label="COGS"),
+            LayoutRow(row=5, label="OPEX"),
+        ],
+        axis=headers((2, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 3, "Price", "pnl.price", role="assumption"),
+            mapped("P&L", 4, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 5, "OPEX", "pnl.opex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "B3", "10"),
+                cell("P&L", "B4", "40"),
+                cell("P&L", "B5", "60"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "below_breakeven")
+
+
+def test_below_breakeven_without_volume_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=3, label="Price"),
+            LayoutRow(row=4, label="COGS"),
+            LayoutRow(row=5, label="OPEX"),
+        ],
+        axis=headers((2, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 3, "Price", "pnl.price", role="assumption"),
+            mapped("P&L", 4, "COGS", "pnl.cogs", role="calculation"),
+            mapped("P&L", 5, "OPEX", "pnl.opex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B3", "10"),
+                cell("P&L", "B4", "40"),
+                cell("P&L", "B5", "80"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "below_breakeven")
+    assert not any("безубыт" in (q.prompt or "").casefold() for q in result.questions)
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(
