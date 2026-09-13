@@ -1329,3 +1329,93 @@ def test_i8b_without_flows_is_question_not_finding() -> None:
     )
     assert not [c for c in result.candidates if c.detector == "identity.I8b"]
     assert any("I8b" in (q.prompt or "") for q in result.questions)
+
+
+def test_i4_volume_times_price_mismatch_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Volume"),
+            LayoutRow(row=3, label="Price"),
+            LayoutRow(row=4, label="Revenue"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 3, "Price", "pnl.price", role="assumption"),
+            mapped("P&L", 4, "Revenue", "pnl.revenue", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "B3", "95"),
+                cell("P&L", "B4", "1020"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I4"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B3" in found[0].cell_refs
+    assert "P&L!B4" in found[0].cell_refs
+
+
+def test_i4_volume_times_price_balanced_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Volume"),
+            LayoutRow(row=3, label="Price"),
+            LayoutRow(row=4, label="Revenue"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 3, "Price", "pnl.price", role="assumption"),
+            mapped("P&L", 4, "Revenue", "pnl.revenue", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "B3", "95"),
+                cell("P&L", "B4", "950"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I4"]
+
+
+def test_i4_without_price_is_question_not_finding() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Volume"), LayoutRow(row=4, label="Revenue")],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 4, "Revenue", "pnl.revenue", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "10"),
+                cell("P&L", "B4", "1020"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I4"]
+    assert any("I4" in (q.prompt or "") for q in result.questions)

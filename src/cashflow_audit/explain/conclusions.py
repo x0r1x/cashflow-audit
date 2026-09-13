@@ -20,6 +20,7 @@ TRUST_DETECTORS = frozenset(
         "identity.I1",
         "identity.I3a",
         "identity.I3b",
+        "identity.I4",
         "identity.I5",
         "identity.I7",
         "identity.I9",

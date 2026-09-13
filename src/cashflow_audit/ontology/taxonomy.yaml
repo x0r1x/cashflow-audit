@@ -1,6 +1,10 @@
 concepts:
   - id: pnl.revenue
     labels: [Revenue, Выручка, Sales, Sales revenue]
+  - id: pnl.volume
+    labels: [Volume, Qty, Quantity, Объём]
+  - id: pnl.price
+    labels: [Price, ASP, Цена]
   - id: pnl.gmv
     labels: [GMV, Gross merchandise value]
   - id: pnl.cogs

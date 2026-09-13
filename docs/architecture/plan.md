@@ -309,9 +309,11 @@ Label column — левая видимая строковая в блоке (ski
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | `stress_rate_unchanged` | Downside режет выручку, mapped ставка не выше Base; нет ставки — молчит |
 | `conflicting_rate` | два mapped `pnl.tax_rate` / `pnl.interest_rate` на один period_key, значения разные; 20 vs 0.20 не конфликт |
-| I1, I3a, I3b, I5, I7, I8, I8b, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
+| I1, I3a, I3b, I4, I5, I7, I8, I8b, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
 
-IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки. Snapshot (I1, I5, I7, I8, I12): `historical|forecast|stub|scenario`. Rollforward (I3a, I3b, I8b, I9, I10, I11): не `scenario`/`total` — колонки сценария не склеиваются как соседние годы. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
+IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки. Snapshot (I1, I4, I5, I7, I8, I12): `historical|forecast|stub|scenario`. Rollforward (I3a, I3b, I8b, I9, I10, I11): не `scenario`/`total` — колонки сценария не склеиваются как соседние годы. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
+
+I4: `revenue ≈ abs(volume) × abs(price)`. Есть выручка и объём без цены (или цена без объёма) → Question. Одна выручка без драйверов — молчит, не выдуманный Q×P.
 
 I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error). Нет net CF → не Finding. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
 
