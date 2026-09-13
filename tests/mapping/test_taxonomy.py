@@ -26,6 +26,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "cov.plcr",
         "fx.debt",
         "fx.ppe",
+        "cf.equity_issue",
     } <= ids
 
 
@@ -201,3 +202,16 @@ def test_ppe_fx_labels_are_specific() -> None:
     assert "курс" not in labels
     assert "usd/rub" not in labels
     assert "переоценка долга" not in labels
+
+
+def test_equity_issue_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "cf.equity_issue" in by_id
+    labels = {label.lower() for label in by_id["cf.equity_issue"].labels}
+    assert "equity issue" in labels
+    assert "share issue" in labels
+    assert "эмиссия" in labels
+    assert "dividends" not in labels
+    assert "equity" not in labels
+    assert "issue" not in labels
+    assert "proceeds" not in labels

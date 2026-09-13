@@ -55,8 +55,15 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     elif "cf.dividends" in book and "pnl.net_income" not in book:
         qn = _maybe_question(questions, qn, "I13", ("pnl.net_income",), book, ctx)
     for group in _groups(by_block, book, I13_CONCEPTS):
+        issue = group.get("cf.equity_issue") or book.get("cf.equity_issue")
         candidates.extend(
-            _i13(ctx, group["bs.equity"], group["pnl.net_income"], group["cf.dividends"])
+            _i13(
+                ctx,
+                group["bs.equity"],
+                group["pnl.net_income"],
+                group["cf.dividends"],
+                issue,
+            )
         )
     if "pnl.revenue" in book and "pnl.volume" in book and "pnl.price" not in book:
         qn = _maybe_question(questions, qn, "I4", ("pnl.price",), book, ctx)
@@ -394,11 +401,54 @@ def _i13(
     equity: MappedRow,
     ni: MappedRow,
     div: MappedRow,
+    issue: MappedRow | None = None,
 ) -> list[Candidate]:
-    return [
-        item.model_copy(update={"detector": "identity.I13"})
-        for item in _i3b(ctx, equity, ni, div)
-    ]
+    slots = _aligned(ctx, equity, ni)
+    div_cols = _axis_cols(ctx, div)
+    issue_cols = _axis_cols(ctx, issue) if issue is not None else {}
+    found: list[Candidate] = []
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        opening = _value(ctx, equity, prev_cols[0])
+        closing = _value(ctx, equity, cur_cols[0])
+        income = _value(ctx, ni, cur_cols[1])
+        dividends = 0.0
+        issued = 0.0
+        if key in div_cols:
+            part = _value(ctx, div, div_cols[key])
+            if part is None:
+                continue
+            dividends = part
+        if issue is not None and key in issue_cols:
+            part = _value(ctx, issue, issue_cols[key])
+            if part is None:
+                continue
+            issued = part
+        if opening is None or closing is None or income is None:
+            continue
+        expected = opening + income - dividends + issued
+        thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
+        if abs(closing - expected) <= thresh:
+            continue
+        refs = [
+            _cell_ref(equity, prev_cols[0]),
+            _cell_ref(equity, cur_cols[0]),
+            _cell_ref(ni, cur_cols[1]),
+        ]
+        if key in div_cols:
+            refs.append(_cell_ref(div, div_cols[key]))
+        if issue is not None and key in issue_cols:
+            refs.append(_cell_ref(issue, issue_cols[key]))
+        found.append(
+            Candidate(
+                detector="identity.I13",
+                cell_refs=refs,
+                payload={"col": cur_cols[0], "period_key": key},
+                base_severity="error",
+            )
+        )
+    return found
 
 
 def _i10(
