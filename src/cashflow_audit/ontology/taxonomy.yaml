@@ -77,3 +77,5 @@ concepts:
     labels: [Headcount, FTE, Численность]
   - id: fx.rate
     labels: [FX rate, Exchange rate, Курс валюты]
+  - id: cov.dscr
+    labels: [DSCR, Debt service coverage, Коэффициент покрытия долга]

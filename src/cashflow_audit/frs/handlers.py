@@ -317,15 +317,35 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         refs = [*e_refs, *i_refs]
         if worst is None or icr < worst[1]:
             worst = (key, icr, refs)
+    dscr_row = totals.get("cov.dscr")
+    dscr_min: float | None = None
+    dscr_flag: tuple[str, float, list[str]] | None = None
+    if dscr_row is not None:
+        for key, _cols in year_slots(ctx, dscr_row):
+            val, refs = year_amount(ctx, dscr_row, key)
+            if val is None:
+                continue
+            if dscr_min is None or val < dscr_min:
+                dscr_min = val
+            if val < ICR_HIGH and (dscr_flag is None or val < dscr_flag[1]):
+                dscr_flag = (key, val, refs)
+    if dscr_flag is not None:
+        key, dscr, refs = dscr_flag
+        if worst is not None:
+            refs = _uniq([*refs, *worst[2]])
+        metrics: dict = {"dscr": dscr, "period_key": key}
+        if worst is not None:
+            metrics["icr"] = worst[1]
+        return _finish(spec_id, name, refs, metrics, "leverage", "high")
     if worst is None:
-        return _finish(spec_id, name, [], {"dscr": None}, "leverage", "medium")
+        return _finish(spec_id, name, [], {"dscr": dscr_min}, "leverage", "medium")
     key, icr, refs = worst
     priority = "high" if icr < ICR_HIGH else "medium"
     return _finish(
         spec_id,
         name,
         refs,
-        {"icr": icr, "period_key": key, "dscr": None},
+        {"icr": icr, "period_key": key, "dscr": dscr_min},
         "leverage",
         priority,
     )
