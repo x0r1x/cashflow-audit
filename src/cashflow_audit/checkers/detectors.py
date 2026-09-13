@@ -3,9 +3,10 @@ from __future__ import annotations
 from cashflow_audit.checkers.astutil import ERROR_TOKENS, as_number, has_func, parse_ast, sum_ranges
 from cashflow_audit.checkers.context import CheckContext
 from cashflow_audit.checkers.models import Candidate
-from cashflow_audit.compile.csr import expand_range
+from cashflow_audit.compile.csr import expand_range, split_sheet_ref
 from cashflow_audit.graph.reach import reachable_from
 from cashflow_audit.graph.scc import circular_groups
+from cashflow_audit.layout.periods import classify_header
 from cashflow_audit.parse.a1 import format_addr, parse_addr
 
 INTENTIONAL_CONCEPTS = {"pnl.interest", "pnl.tax", "bs.debt"}
@@ -289,6 +290,61 @@ def detect_hidden_input(ctx: CheckContext) -> list[Candidate]:
             )
         )
     return found
+
+
+def detect_scenario_switch(ctx: CheckContext) -> list[Candidate]:
+    mapped = [row for row in ctx.mapping.rows if row.concept_id]
+    if not mapped:
+        return []
+    targets_by_source: dict[str, list[str]] = {}
+    for edge in ctx.edges:
+        if not edge.target:
+            continue
+        targets_by_source.setdefault(edge.source, []).append(edge.target)
+    by_scenario: dict[str, list[str]] = {}
+    for row in mapped:
+        if _scenario_key(row.sheet) is not None:
+            continue
+        keys: set[str] = set()
+        refs: list[str] = []
+        for cell in ctx.cells:
+            if cell["sheet"] != row.sheet or int(cell["row"]) != row.row:
+                continue
+            src = _ref(cell)
+            refs.append(src)
+            for target in targets_by_source.get(src, []):
+                key = _scenario_key(_sheet_of(target))
+                if key:
+                    keys.add(key)
+        if len(keys) != 1:
+            continue
+        by_scenario.setdefault(next(iter(keys)), []).extend(refs)
+    if len(by_scenario) < 2:
+        return []
+    refs = list(dict.fromkeys(item for group in by_scenario.values() for item in group))
+    return [
+        Candidate(
+            detector="scenario_switch",
+            cell_refs=refs,
+            payload={"scenarios": sorted(by_scenario)},
+            base_severity="error",
+        )
+    ]
+
+
+def _scenario_key(sheet: str) -> str | None:
+    hit = classify_header(sheet)
+    if hit is not None and hit.role == "scenario":
+        return hit.period_key
+    return None
+
+
+def _sheet_of(ref: str) -> str:
+    try:
+        sheet, _body = split_sheet_ref(ref)
+    except ValueError:
+        return ref
+    return sheet
 
 
 def _ref(cell: dict) -> str:

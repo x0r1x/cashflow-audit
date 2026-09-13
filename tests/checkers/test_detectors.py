@@ -211,9 +211,9 @@ def test_agg_double_count_subtotal_in_parent_sum_is_error() -> None:
     found = _detectors(result, "agg_double_count")
     assert found
     assert found[0].base_severity == "error"
-    assert "P&L!B2" in found[0].cell_refs
-    assert "P&L!B4" in found[0].cell_refs
-    assert "P&L!B5" in found[0].cell_refs
+    staff = next(item for item in found if "P&L!B2" in item.cell_refs)
+    assert "P&L!B4" in staff.cell_refs
+    assert "P&L!B5" in staff.cell_refs
 
 
 def test_agg_double_count_disjoint_sums_is_silent() -> None:
@@ -311,6 +311,75 @@ def test_hidden_input_in_visible_output_and_tag_only_otherwise() -> None:
     )
     assert _detectors(run_checks(used_hidden), "hidden_input")
     assert not _detectors(run_checks(unused_hidden), "hidden_input")
+
+
+def test_scenario_switch_live_pnl_and_debt_disagree() -> None:
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Rev", "pnl.revenue", role="output"),
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "1", formula="Base!B2"),
+                cell("BS", "B2", "1", formula="Upside!B2"),
+                cell("Base", "B2", "10"),
+                cell("Upside", "B2", "20"),
+            ],
+            edges=[
+                Edge(kind="cross_sheet", source="P&L!B2", target="Base!B2"),
+                Edge(kind="cross_sheet", source="BS!B2", target="Upside!B2"),
+            ],
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "scenario_switch")
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "BS!B2" in found[0].cell_refs
+
+
+def test_scenario_switch_same_source_is_silent() -> None:
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Rev", "pnl.revenue", role="output"),
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "1", formula="Base!B2"),
+                cell("BS", "B2", "1", formula="Base!B2"),
+                cell("Base", "B2", "10"),
+            ],
+            edges=[
+                Edge(kind="cross_sheet", source="P&L!B2", target="Base!B2"),
+                Edge(kind="cross_sheet", source="BS!B2", target="Base!B2"),
+            ],
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "scenario_switch")
+
+
+def test_scenario_switch_full_copies_are_silent() -> None:
+    mapping = MappingDocument(
+        rows=[
+            mapped("Base", 2, "Rev", "pnl.revenue", role="output"),
+            mapped("Upside", 2, "Debt", "bs.debt", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [cell("Base", "B2", "10"), cell("Upside", "B2", "20")],
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "scenario_switch")
 
 
 def test_dedup_same_detector_and_refs() -> None:

@@ -304,6 +304,7 @@ Label column — левая видимая строковая в блоке (ski
 | pattern_break … source_switch | series kind |
 | `agg_range_gap` | SUM vs статьи блока |
 | `agg_double_count` | лист в двух SUM одного столбца; check-row не второй агрегат |
+| `scenario_switch` | live-итоги тянут разные scenario-листы (P&L Base, долг Upside); полные копии Base/Upside не флаг |
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
 | I1, I3a, I3b, I5, I7, I8, I8b, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
