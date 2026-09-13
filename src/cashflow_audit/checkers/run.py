@@ -18,6 +18,7 @@ from cashflow_audit.checkers.detectors import (
     detect_stress_rate_unchanged,
     detect_unresolved_dynamic,
     detect_unused_cell,
+    detect_volume_without_ap,
     detect_volume_without_capex,
     detect_volume_without_cogs,
     detect_volume_without_inventory,
@@ -49,6 +50,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_below_breakeven(ctx))
     candidates.extend(detect_negative_npv(ctx))
     candidates.extend(detect_irr_below_wacc(ctx))
+    candidates.extend(detect_volume_without_ap(ctx))
     candidates.extend(detect_volume_without_capex(ctx))
     candidates.extend(detect_volume_without_cogs(ctx))
     candidates.extend(detect_volume_without_inventory(ctx))

@@ -520,6 +520,10 @@ def detect_irr_below_wacc(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_volume_without_ap(ctx: CheckContext) -> list[Candidate]:
+    return _volume_without(ctx, "bs.ap", "volume_without_ap")
+
+
 def detect_volume_without_capex(ctx: CheckContext) -> list[Candidate]:
     return _volume_without(ctx, "cf.capex", "volume_without_capex")
 
