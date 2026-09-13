@@ -65,3 +65,5 @@ concepts:
     labels: [Repayment, Погашение]
   - id: cf.drawdown
     labels: [Proceeds, Drawdown, Выборки]
+  - id: covenant.headroom
+    labels: [Covenant headroom, Headroom to covenant, Запас по ковенанту]

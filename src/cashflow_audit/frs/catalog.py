@@ -62,5 +62,10 @@ CATALOG: tuple[ControlSpec, ...] = (
         frozenset({"cf.dividends"}),
         nice=frozenset({"cf.fcf", "cf.cfo", "cf.capex", "cf.drawdown", "cf.repayment"}),
     ),
-    ControlSpec("F14", "Headroom", frozenset({"bs.cash"})),
+    ControlSpec(
+        "F14",
+        "Headroom",
+        frozenset({"bs.cash"}),
+        nice=frozenset({"covenant.headroom"}),
+    ),
 )
