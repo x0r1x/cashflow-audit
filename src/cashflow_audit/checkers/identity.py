@@ -9,6 +9,7 @@ from cashflow_audit.parse.a1 import format_addr
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
 I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
+I4_CONCEPTS = ("pnl.revenue", "pnl.volume", "pnl.price")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
 I8_CONCEPTS = ("pnl.da", "cf.da")
@@ -44,6 +45,16 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
         candidates.extend(_i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div))
+    if "pnl.revenue" in book and "pnl.volume" in book and "pnl.price" not in book:
+        qn = _maybe_question(questions, qn, "I4", ("pnl.price",), book, ctx)
+    elif "pnl.revenue" in book and "pnl.price" in book and "pnl.volume" not in book:
+        qn = _maybe_question(questions, qn, "I4", ("pnl.volume",), book, ctx)
+    elif "pnl.volume" in book and "pnl.price" in book and "pnl.revenue" not in book:
+        qn = _maybe_question(questions, qn, "I4", ("pnl.revenue",), book, ctx)
+    for group in _groups(by_block, book, I4_CONCEPTS):
+        candidates.extend(
+            _i4(ctx, group["pnl.revenue"], group["pnl.volume"], group["pnl.price"])
+        )
     qn = _maybe_question(questions, qn, "I5", I5_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I5_CONCEPTS):
         candidates.extend(
@@ -501,6 +512,38 @@ def _i11(
                     _cell_ref(rate, cur_cols[2]),
                 ],
                 payload={"col": cur_cols[0], "period_key": key, "delta": abs(got) - abs(expected)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i4(
+    ctx: CheckContext,
+    revenue: MappedRow,
+    volume: MappedRow,
+    price: MappedRow,
+) -> list[Candidate]:
+    found: list[Candidate] = []
+    for key, cols in _aligned(ctx, revenue, volume, price, roles=_IDENTITY_SNAPSHOT_ROLES):
+        got = _value(ctx, revenue, cols[0])
+        qty = _value(ctx, volume, cols[1])
+        unit = _value(ctx, price, cols[2])
+        if got is None or qty is None or unit is None:
+            continue
+        expected = abs(qty) * abs(unit)
+        thresh = max(1.0, 0.001 * max(abs(got), abs(expected)))
+        if abs(abs(got) - expected) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I4",
+                cell_refs=[
+                    _cell_ref(revenue, cols[0]),
+                    _cell_ref(volume, cols[1]),
+                    _cell_ref(price, cols[2]),
+                ],
+                payload={"col": cols[0], "period_key": key, "delta": abs(got) - expected},
                 base_severity="error",
             )
         )
