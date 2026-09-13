@@ -416,7 +416,7 @@ def test_i1_does_not_mix_totals_from_two_blocks() -> None:
     assert found[0].cell_refs == ["BS!B12", "BS!B13", "BS!B14"]
 
 
-def test_i1_ignores_scenario_columns() -> None:
+def test_i1_scenario_column_imbalance_is_error() -> None:
     layout = simple_layout(
         [
             LayoutRow(row=2, label="Assets"),
@@ -447,7 +447,78 @@ def test_i1_ignores_scenario_columns() -> None:
             mapping=mapping,
         )
     )
+    found = [c for c in result.candidates if c.detector == "identity.I1"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C2" in found[0].cell_refs
+    assert "BS!C4" in found[0].cell_refs
+    assert not any("BS!B2" in c.cell_refs for c in found)
+
+
+def test_i1_ignores_total_columns() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Assets"),
+            LayoutRow(row=3, label="Equity"),
+            LayoutRow(row=4, label="Liabilities"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "Total", "total")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Assets", "bs.assets_total", role="output"),
+            mapped("BS", 3, "Equity", "bs.equity", role="output"),
+            mapped("BS", 4, "Liabilities", "bs.liabilities", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "B3", "40"),
+                cell("BS", "B4", "60"),
+                cell("BS", "C2", "100"),
+                cell("BS", "C3", "40"),
+                cell("BS", "C4", "50"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
     assert not [c for c in result.candidates if c.detector == "identity.I1"]
+
+
+def test_i10_does_not_rollforward_across_scenario() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Draw"),
+            LayoutRow(row=4, label="Repay"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "Base", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("BS", 3, "Draw", "cf.drawdown", role="calculation"),
+            mapped("BS", 4, "Repay", "cf.repayment", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "50"),
+                cell("BS", "C3", "0"),
+                cell("BS", "C4", "0"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I10"]
 
 
 def test_i5_gross_profit_mismatch_is_error() -> None:

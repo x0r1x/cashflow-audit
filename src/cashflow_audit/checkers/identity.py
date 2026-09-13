@@ -21,6 +21,7 @@ I10_FLOWS = ("cf.drawdown", "cf.repayment")
 I11_CONCEPTS = ("pnl.interest", "bs.debt", "pnl.interest_rate")
 I12_CONCEPTS = ("pnl.tax", "pnl.net_income", "pnl.tax_rate")
 _IDENTITY_PERIOD_ROLES = frozenset({"historical", "forecast", "stub"})
+_IDENTITY_SNAPSHOT_ROLES = _IDENTITY_PERIOD_ROLES | {"scenario"}
 
 
 def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQuestion]]:
@@ -206,7 +207,7 @@ def _i1(
     liab: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for key, cols in _aligned(ctx, assets, equity, liab):
+    for key, cols in _aligned(ctx, assets, equity, liab, roles=_IDENTITY_SNAPSHOT_ROLES):
         a = _value(ctx, assets, cols[0])
         e = _value(ctx, equity, cols[1])
         lia = _value(ctx, liab, cols[2])
@@ -239,7 +240,7 @@ def _minus(
     right: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for key, cols in _aligned(ctx, result, left, right):
+    for key, cols in _aligned(ctx, result, left, right, roles=_IDENTITY_SNAPSHOT_ROLES):
         got = _value(ctx, result, cols[0])
         lhs = _value(ctx, left, cols[1])
         rhs = _value(ctx, right, cols[2])
@@ -513,7 +514,7 @@ def _i12(
     rate: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for key, cols in _aligned(ctx, tax, ni, rate):
+    for key, cols in _aligned(ctx, tax, ni, rate, roles=_IDENTITY_SNAPSHOT_ROLES):
         got = _value(ctx, tax, cols[0])
         income = _value(ctx, ni, cols[1])
         raw_rate = _value(ctx, rate, cols[2])
@@ -544,7 +545,7 @@ def _i8(
     cf_da: MappedRow,
 ) -> list[Candidate]:
     found: list[Candidate] = []
-    for key, cols in _aligned(ctx, pnl_da, cf_da):
+    for key, cols in _aligned(ctx, pnl_da, cf_da, roles=_IDENTITY_SNAPSHOT_ROLES):
         left = _value(ctx, pnl_da, cols[0])
         right = _value(ctx, cf_da, cols[1])
         if left is None or right is None:
@@ -624,7 +625,12 @@ def _as_rate(raw: float) -> float:
 _ROLE_RANK = {"historical": 0, "stub": 1, "forecast": 2}
 
 
-def _axis_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
+def _axis_cols(
+    ctx: CheckContext,
+    row: MappedRow,
+    roles: frozenset[str] | None = None,
+) -> dict[str, int]:
+    allowed = roles if roles is not None else _IDENTITY_PERIOD_ROLES
     found: dict[str, int] = {}
     rank: dict[str, int] = {}
     for sheet in ctx.layout.sheets:
@@ -632,7 +638,7 @@ def _axis_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
             if sheet.name != row.sheet or block.block_id != row.block_id:
                 continue
             for header in block.axis.headers:
-                if header.role not in _IDENTITY_PERIOD_ROLES:
+                if header.role not in allowed:
                     continue
                 key = header.period_key
                 weight = _ROLE_RANK.get(header.role, 9)
@@ -642,8 +648,12 @@ def _axis_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     return found
 
 
-def _aligned(ctx: CheckContext, *rows: MappedRow) -> list[tuple[str, list[int]]]:
-    maps = [_axis_cols(ctx, row) for row in rows]
+def _aligned(
+    ctx: CheckContext,
+    *rows: MappedRow,
+    roles: frozenset[str] | None = None,
+) -> list[tuple[str, list[int]]]:
+    maps = [_axis_cols(ctx, row, roles=roles) for row in rows]
     if not maps or any(not item for item in maps):
         return []
     keys = set(maps[0])
