@@ -19,6 +19,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "val.npv",
         "val.irr",
         "val.wacc",
+        "ops.headcount",
     } <= ids
 
 
@@ -108,3 +109,15 @@ def test_irr_and_wacc_labels_are_specific() -> None:
     assert "rate" not in wacc
     assert "npv" not in irr
     assert "npv" not in wacc
+
+
+def test_headcount_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "ops.headcount" in by_id
+    labels = {label.lower() for label in by_id["ops.headcount"].labels}
+    assert "headcount" in labels
+    assert "fte" in labels
+    assert "численность" in labels
+    assert "staff" not in labels
+    assert "employees" not in labels
+    assert "opex" not in labels
