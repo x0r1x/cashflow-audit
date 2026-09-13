@@ -79,3 +79,5 @@ concepts:
     labels: [FX rate, Exchange rate, Курс валюты]
   - id: cov.dscr
     labels: [DSCR, Debt service coverage, Коэффициент покрытия долга]
+  - id: cov.llcr
+    labels: [LLCR, Loan life coverage, Коэффициент покрытия за срок кредита]

@@ -299,6 +299,24 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     return _finish(spec_id, name, [], {}, "leverage", "medium", confidence="medium")
 
 
+def _coverage_extrema(
+    ctx: FrsCtx, row: MappedRow | None
+) -> tuple[float | None, tuple[str, float, list[str]] | None]:
+    if row is None:
+        return None, None
+    minimum: float | None = None
+    flag: tuple[str, float, list[str]] | None = None
+    for key, _cols in year_slots(ctx, row):
+        val, refs = year_amount(ctx, row, key)
+        if val is None:
+            continue
+        if minimum is None or val < minimum:
+            minimum = val
+        if val < ICR_HIGH and (flag is None or val < flag[1]):
+            flag = (key, val, refs)
+    return minimum, flag
+
+
 def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
     totals = book_totals(ctx)
     ebitda, interest = totals.get("pnl.ebitda"), totals.get("pnl.interest")
@@ -317,35 +335,41 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         refs = [*e_refs, *i_refs]
         if worst is None or icr < worst[1]:
             worst = (key, icr, refs)
-    dscr_row = totals.get("cov.dscr")
-    dscr_min: float | None = None
-    dscr_flag: tuple[str, float, list[str]] | None = None
-    if dscr_row is not None:
-        for key, _cols in year_slots(ctx, dscr_row):
-            val, refs = year_amount(ctx, dscr_row, key)
-            if val is None:
-                continue
-            if dscr_min is None or val < dscr_min:
-                dscr_min = val
-            if val < ICR_HIGH and (dscr_flag is None or val < dscr_flag[1]):
-                dscr_flag = (key, val, refs)
-    if dscr_flag is not None:
-        key, dscr, refs = dscr_flag
+    dscr_min, dscr_flag = _coverage_extrema(ctx, totals.get("cov.dscr"))
+    llcr_min, llcr_flag = _coverage_extrema(ctx, totals.get("cov.llcr"))
+    if dscr_flag is not None or llcr_flag is not None:
+        refs: list[str] = []
+        metrics: dict = {"dscr": dscr_min, "llcr": llcr_min}
+        period_key = None
+        if dscr_flag is not None:
+            key, val, cov_refs = dscr_flag
+            refs.extend(cov_refs)
+            metrics["dscr"] = val
+            period_key = key
+        if llcr_flag is not None:
+            key, val, cov_refs = llcr_flag
+            refs.extend(cov_refs)
+            metrics["llcr"] = val
+            if period_key is None or (dscr_flag is not None and val < dscr_flag[1]):
+                period_key = key
         if worst is not None:
             refs = _uniq([*refs, *worst[2]])
-        metrics: dict = {"dscr": dscr, "period_key": key}
-        if worst is not None:
             metrics["icr"] = worst[1]
+        else:
+            refs = _uniq(refs)
+        metrics["period_key"] = period_key
         return _finish(spec_id, name, refs, metrics, "leverage", "high")
     if worst is None:
-        return _finish(spec_id, name, [], {"dscr": dscr_min}, "leverage", "medium")
+        return _finish(
+            spec_id, name, [], {"dscr": dscr_min, "llcr": llcr_min}, "leverage", "medium"
+        )
     key, icr, refs = worst
     priority = "high" if icr < ICR_HIGH else "medium"
     return _finish(
         spec_id,
         name,
         refs,
-        {"icr": icr, "period_key": key, "dscr": dscr_min},
+        {"icr": icr, "period_key": key, "dscr": dscr_min, "llcr": llcr_min},
         "leverage",
         priority,
     )

@@ -22,6 +22,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "ops.headcount",
         "fx.rate",
         "cov.dscr",
+        "cov.llcr",
     } <= ids
 
 
@@ -145,4 +146,16 @@ def test_dscr_labels_are_specific() -> None:
     assert "debt service coverage" in labels
     assert "icr" not in labels
     assert "llcr" not in labels
+    assert "coverage" not in labels
+
+
+def test_llcr_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "cov.llcr" in by_id
+    labels = {label.lower() for label in by_id["cov.llcr"].labels}
+    assert "llcr" in labels
+    assert "loan life coverage" in labels
+    assert "dscr" not in labels
+    assert "icr" not in labels
+    assert "plcr" not in labels
     assert "coverage" not in labels
