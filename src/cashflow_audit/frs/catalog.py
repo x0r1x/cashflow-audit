@@ -38,7 +38,7 @@ CATALOG: tuple[ControlSpec, ...] = (
         "F07",
         "ICR / DSCR",
         frozenset({"pnl.ebitda", "pnl.interest"}),
-        nice=frozenset({"cov.dscr"}),
+        nice=frozenset({"cov.dscr", "cov.llcr"}),
     ),
     ControlSpec(
         "F08",
