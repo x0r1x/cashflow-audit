@@ -34,7 +34,12 @@ CATALOG: tuple[ControlSpec, ...] = (
         frozenset({"bs.debt", "pnl.ebitda"}),
         nice=frozenset({"bs.cash"}),
     ),
-    ControlSpec("F07", "ICR / DSCR", frozenset({"pnl.ebitda", "pnl.interest"})),
+    ControlSpec(
+        "F07",
+        "ICR / DSCR",
+        frozenset({"pnl.ebitda", "pnl.interest"}),
+        nice=frozenset({"cov.dscr"}),
+    ),
     ControlSpec(
         "F08",
         "Ликвидность",

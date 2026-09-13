@@ -298,6 +298,88 @@ def test_f07_icr_below_floor_is_flagged() -> None:
     assert issue.class_name == "leverage"
 
 
+def test_f07_mapped_dscr_below_one_is_flagged() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=3, label="Interest")],
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="DSCR")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("Debt", 2, "DSCR", "cov.dscr", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "100"),
+            cell("P&L", "D2", "100"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "10"),
+            cell("Debt", "B2", "1.5"),
+            cell("Debt", "C2", "0.9"),
+            cell("Debt", "D2", "1.2"),
+        ],
+    )
+    row = _control(doc, "F07")
+    assert row.status == "flagged"
+    assert row.metrics.get("dscr") == 0.9
+    issue = _issue(doc, "F07")
+    assert "Debt!C2" in issue.cell_refs
+    assert issue.priority == "high"
+
+
+def test_f07_mapped_dscr_above_one_is_clear() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=3, label="Interest")],
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="DSCR")],
+            sheet="Debt",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "Interest", "pnl.interest", role="calculation"),
+            mapped("Debt", 2, "DSCR", "cov.dscr", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "100"),
+            cell("P&L", "D2", "100"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "10"),
+            cell("Debt", "B2", "1.5"),
+            cell("Debt", "C2", "1.4"),
+            cell("Debt", "D2", "1.6"),
+        ],
+    )
+    row = _control(doc, "F07")
+    assert row.status == "clear"
+    assert row.metrics.get("dscr") == 1.4
+    assert not any(i.control_id == "F07" for i in doc.issues)
+
+
 def test_f07_uses_ebitda_not_ebit() -> None:
     layout = simple_layout(
         [
