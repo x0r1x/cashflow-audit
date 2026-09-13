@@ -382,6 +382,89 @@ def test_scenario_switch_full_copies_are_silent() -> None:
     assert not _detectors(result, "scenario_switch")
 
 
+def test_stress_rate_unchanged_when_revenue_drops_is_warning() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="Rate"),
+        ],
+        axis=headers((2, "Base", "scenario"), (3, "Downside", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "Rate", "pnl.interest_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "80"),
+                cell("P&L", "B3", "12"),
+                cell("P&L", "C3", "12"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "stress_rate_unchanged")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "P&L!C2" in found[0].cell_refs
+    assert "P&L!C3" in found[0].cell_refs
+
+
+def test_stress_rate_higher_in_downside_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="Rate"),
+        ],
+        axis=headers((2, "Base", "scenario"), (3, "Downside", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "Rate", "pnl.interest_rate", role="assumption"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "80"),
+                cell("P&L", "B3", "0.12"),
+                cell("P&L", "C3", "0.18"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "stress_rate_unchanged")
+
+
+def test_stress_rate_without_rate_mapped_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=headers((2, "Base", "scenario"), (3, "Downside", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "80"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "stress_rate_unchanged")
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(

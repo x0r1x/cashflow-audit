@@ -7,6 +7,7 @@ from cashflow_audit.compile.csr import expand_range, split_sheet_ref
 from cashflow_audit.graph.reach import reachable_from
 from cashflow_audit.graph.scc import circular_groups
 from cashflow_audit.layout.periods import classify_header
+from cashflow_audit.mapping.models import MappedRow
 from cashflow_audit.parse.a1 import format_addr, parse_addr
 
 INTENTIONAL_CONCEPTS = {"pnl.interest", "pnl.tax", "bs.debt"}
@@ -345,6 +346,96 @@ def _sheet_of(ref: str) -> str:
     except ValueError:
         return ref
     return sheet
+
+
+def detect_stress_rate_unchanged(ctx: CheckContext) -> list[Candidate]:
+    revenue = _mapped_concept(ctx, "pnl.revenue")
+    rate = _mapped_concept(ctx, "pnl.interest_rate")
+    if revenue is None or rate is None:
+        return []
+    rev_cols = _scenario_axis(ctx, revenue)
+    rate_cols = _scenario_axis(ctx, rate)
+    found: list[Candidate] = []
+    bases = [key for key in rev_cols if _is_base_scenario(key)]
+    stresses = [key for key in rev_cols if _is_stress_scenario(key)]
+    for base_key in bases:
+        for stress_key in stresses:
+            if base_key not in rate_cols or stress_key not in rate_cols:
+                continue
+            rev_base = _cell_number(ctx, revenue, rev_cols[base_key])
+            rev_stress = _cell_number(ctx, revenue, rev_cols[stress_key])
+            rate_base = _cell_number(ctx, rate, rate_cols[base_key])
+            rate_stress = _cell_number(ctx, rate, rate_cols[stress_key])
+            if None in (rev_base, rev_stress, rate_base, rate_stress):
+                continue
+            drop = abs(rev_base) - abs(rev_stress)
+            if drop <= max(1.0, 0.01 * abs(rev_base)):
+                continue
+            if _as_rate(rate_stress) > _as_rate(rate_base) + 1e-9:
+                continue
+            found.append(
+                Candidate(
+                    detector="stress_rate_unchanged",
+                    cell_refs=[
+                        _mapped_ref(revenue, rev_cols[base_key]),
+                        _mapped_ref(revenue, rev_cols[stress_key]),
+                        _mapped_ref(rate, rate_cols[base_key]),
+                        _mapped_ref(rate, rate_cols[stress_key]),
+                    ],
+                    payload={"base": base_key, "stress": stress_key},
+                    base_severity="warning",
+                )
+            )
+    return found
+
+
+def _mapped_concept(ctx: CheckContext, concept_id: str) -> MappedRow | None:
+    chosen: MappedRow | None = None
+    for row in ctx.mapping.rows:
+        if row.concept_id != concept_id:
+            continue
+        if chosen is None or (row.article_role == "output" and chosen.article_role != "output"):
+            chosen = row
+    return chosen
+
+
+def _scenario_axis(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
+    block = _block_for(ctx, row.sheet, row.row)
+    if block is None:
+        return {}
+    found: dict[str, int] = {}
+    for header in block.axis.headers:
+        if header.role != "scenario":
+            continue
+        found[header.period_key] = header.col
+    return found
+
+
+def _cell_number(ctx: CheckContext, row: MappedRow, col: int) -> float | None:
+    for cell in ctx.cells:
+        if cell["sheet"] == row.sheet and int(cell["row"]) == row.row and int(cell["col"]) == col:
+            return as_number(cell.get("cached_value"))
+    return None
+
+
+def _mapped_ref(row: MappedRow, col: int) -> str:
+    return f"{row.sheet}!{format_addr(col, row.row)}"
+
+
+def _is_base_scenario(key: str) -> bool:
+    text = key.casefold()
+    return text == "base" or text.startswith("base ") or "позитив" in text
+
+
+def _is_stress_scenario(key: str) -> bool:
+    text = key.casefold()
+    return text in {"downside", "stress"} or "негатив" in text
+
+
+def _as_rate(raw: float) -> float:
+    if abs(raw) > 1.0:
+        return raw / 100.0
+    return raw
 
 
 def _ref(cell: dict) -> str:
