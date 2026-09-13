@@ -29,6 +29,8 @@ concepts:
     labels: [Total assets, Assets, Итого активы, Активы]
   - id: bs.assets_current
     labels: [Current assets, Оборотные активы]
+  - id: bs.ppe
+    labels: [PPE, PP&E, Fixed assets, Основные средства]
   - id: bs.liabilities
     labels: [Liabilities, Обязательства]
   - id: bs.equity

@@ -12,6 +12,8 @@ I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I7_CONCEPTS = ("pnl.ebit", "pnl.ebitda", "pnl.da")
 I8_CONCEPTS = ("pnl.da", "cf.da")
+I8B_STOCK = ("bs.ppe",)
+I8B_FLOWS = ("cf.capex", "pnl.da")
 I9_NEED = ("pnl.net_income", "cf.cfo")
 I9_NICE = ("pnl.da", "bs.ar", "bs.inventory", "bs.ap")
 I10_STOCK = ("bs.debt",)
@@ -119,6 +121,16 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         qn = _maybe_question(questions, qn, "I8", ("pnl.da",), book, ctx)
     for group in _groups(by_block, book, I8_CONCEPTS):
         candidates.extend(_i8(ctx, group["pnl.da"], group["cf.da"]))
+    if "bs.ppe" in book and not any(cid in book for cid in I8B_FLOWS):
+        qn = _maybe_question(questions, qn, "I8b", I8B_FLOWS, book, ctx)
+    elif "bs.ppe" not in book and any(cid in book for cid in I8B_FLOWS):
+        qn = _maybe_question(questions, qn, "I8b", I8B_STOCK, book, ctx)
+    for group in _groups(by_block, book, I8B_STOCK):
+        capex = group.get("cf.capex") or book.get("cf.capex")
+        da = group.get("pnl.da") or book.get("pnl.da")
+        if capex is None and da is None:
+            continue
+        candidates.extend(_i8b(ctx, group["bs.ppe"], capex, da))
     return candidates, questions
 
 
@@ -548,6 +560,55 @@ def _i8(
                     _cell_ref(cf_da, cols[1]),
                 ],
                 payload={"col": cols[0], "period_key": key, "delta": abs(left) - abs(right)},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _i8b(
+    ctx: CheckContext,
+    ppe: MappedRow,
+    capex: MappedRow | None,
+    da: MappedRow | None,
+) -> list[Candidate]:
+    slots = _aligned(ctx, ppe)
+    capex_cols = _axis_cols(ctx, capex) if capex is not None else {}
+    da_cols = _axis_cols(ctx, da) if da is not None else {}
+    found: list[Candidate] = []
+    for prev, cur in zip(slots, slots[1:], strict=False):
+        _pkey, prev_cols = prev
+        key, cur_cols = cur
+        opening = _value(ctx, ppe, prev_cols[0])
+        closing = _value(ctx, ppe, cur_cols[0])
+        spent = 0.0
+        depreciated = 0.0
+        if capex is not None and key in capex_cols:
+            part = _value(ctx, capex, capex_cols[key])
+            if part is None:
+                continue
+            spent = part
+        if da is not None and key in da_cols:
+            part = _value(ctx, da, da_cols[key])
+            if part is None:
+                continue
+            depreciated = part
+        if opening is None or closing is None:
+            continue
+        expected = opening + abs(spent) - abs(depreciated)
+        thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
+        if abs(closing - expected) <= thresh:
+            continue
+        refs = [_cell_ref(ppe, prev_cols[0]), _cell_ref(ppe, cur_cols[0])]
+        if capex is not None and key in capex_cols:
+            refs.append(_cell_ref(capex, capex_cols[key]))
+        if da is not None and key in da_cols:
+            refs.append(_cell_ref(da, da_cols[key]))
+        found.append(
+            Candidate(
+                detector="identity.I8b",
+                cell_refs=refs,
+                payload={"col": cur_cols[0], "period_key": key, "delta": closing - expected},
                 base_severity="error",
             )
         )
