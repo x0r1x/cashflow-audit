@@ -21,6 +21,7 @@ _TITLES = {
     "below_breakeven": "Маржинальный доход не покрывает OPEX",
     "negative_npv": "NPV отрицательный",
     "irr_below_wacc": "IRR ниже ставки дисконта",
+    "volume_without_capex": "Объём растёт, CAPEX не меняется",
     "agg_range_gap": "Агрегат не покрывает все статьи блока",
     "agg_double_count": "Статья входит в два агрегата СУММ",
     "unused_cell": "Ячейка не влияет на итоговые показатели",

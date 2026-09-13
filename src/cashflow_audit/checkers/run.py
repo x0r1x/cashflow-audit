@@ -18,6 +18,7 @@ from cashflow_audit.checkers.detectors import (
     detect_stress_rate_unchanged,
     detect_unresolved_dynamic,
     detect_unused_cell,
+    detect_volume_without_capex,
     detect_xlm_or_vba,
 )
 from cashflow_audit.checkers.identity import detect_identities
@@ -45,6 +46,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_below_breakeven(ctx))
     candidates.extend(detect_negative_npv(ctx))
     candidates.extend(detect_irr_below_wacc(ctx))
+    candidates.extend(detect_volume_without_capex(ctx))
     identity, questions = detect_identities(ctx)
     candidates.extend(identity)
     candidates = _dedup(candidates)

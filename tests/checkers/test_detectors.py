@@ -807,6 +807,102 @@ def test_irr_without_wacc_is_silent() -> None:
     assert not any("irr" in (q.prompt or "").casefold() for q in result.questions)
 
 
+def test_volume_up_capex_flat_is_warning() -> None:
+    years = headers((2, "2023", "historical"), (3, "2024E", "forecast"))
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Volume")],
+            axis=years,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=years,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+                cell("CF", "B2", "-10"),
+                cell("CF", "C2", "-10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "volume_without_capex")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!C2" in found[0].cell_refs
+    assert "CF!B2" in found[0].cell_refs
+    assert "CF!C2" in found[0].cell_refs
+
+
+def test_volume_up_capex_up_is_silent() -> None:
+    years = headers((2, "2023", "historical"), (3, "2024E", "forecast"))
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Volume")],
+            axis=years,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="CAPEX")],
+            sheet="CF",
+            axis=years,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Volume", "pnl.volume", role="assumption"),
+            mapped("CF", 2, "CAPEX", "cf.capex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+                cell("CF", "B2", "-10"),
+                cell("CF", "C2", "-20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "volume_without_capex")
+
+
+def test_volume_without_capex_mapped_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Volume")],
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Volume", "pnl.volume", role="assumption")]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "C2", "120"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "volume_without_capex")
+    assert not any("capex" in (q.prompt or "").casefold() for q in result.questions)
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(

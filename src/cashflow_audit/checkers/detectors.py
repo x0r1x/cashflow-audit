@@ -24,6 +24,8 @@ KIND_TO_DETECTOR = {
 UNUSED_CAP = 50
 RATE_CONCEPTS = frozenset({"pnl.tax_rate", "pnl.interest_rate"})
 _SNAPSHOT_ROLES = frozenset({"historical", "forecast", "stub", "scenario"})
+_TIME_ROLES = frozenset({"historical", "forecast", "stub"})
+VOL_GROWTH = 0.10
 
 
 def detect_excel_error(ctx: CheckContext) -> list[Candidate]:
@@ -518,6 +520,51 @@ def detect_irr_below_wacc(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_volume_without_capex(ctx: CheckContext) -> list[Candidate]:
+    volume = _mapped_concept(ctx, "pnl.volume")
+    capex = _mapped_concept(ctx, "cf.capex")
+    if volume is None or capex is None:
+        return []
+    vol_cols = _header_cols(ctx, volume)
+    cap_cols = _header_cols(ctx, capex)
+    keys = sorted(
+        key
+        for key in set(vol_cols) & set(cap_cols)
+        if _period_role(ctx, volume, key) in _TIME_ROLES
+        and _period_role(ctx, capex, key) in _TIME_ROLES
+    )
+    found: list[Candidate] = []
+    for prev, cur in zip(keys, keys[1:], strict=False):
+        if _period_role(ctx, volume, cur) != "forecast":
+            continue
+        v0 = _cell_number(ctx, volume, vol_cols[prev])
+        v1 = _cell_number(ctx, volume, vol_cols[cur])
+        c0 = _cell_number(ctx, capex, cap_cols[prev])
+        c1 = _cell_number(ctx, capex, cap_cols[cur])
+        if None in (v0, v1, c0, c1) or abs(v0) == 0.0:
+            continue
+        if abs(v1) / abs(v0) - 1.0 < VOL_GROWTH - 1e-9:
+            continue
+        lift = abs(c1) - abs(c0)
+        thresh = max(1.0, 0.001 * max(abs(c0), abs(c1)))
+        if lift > thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="volume_without_capex",
+                cell_refs=[
+                    _mapped_ref(volume, vol_cols[prev]),
+                    _mapped_ref(volume, vol_cols[cur]),
+                    _mapped_ref(capex, cap_cols[prev]),
+                    _mapped_ref(capex, cap_cols[cur]),
+                ],
+                payload={"period_key": cur},
+                base_severity="warning",
+            )
+        )
+    return found
+
+
 def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     block = _block_for(ctx, row.sheet, row.row)
     if block is None:
@@ -528,6 +575,16 @@ def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
             continue
         found[header.period_key] = header.col
     return found
+
+
+def _period_role(ctx: CheckContext, row: MappedRow, key: str) -> str | None:
+    block = _block_for(ctx, row.sheet, row.row)
+    if block is None:
+        return None
+    for header in block.axis.headers:
+        if header.period_key == key:
+            return header.role
+    return None
 
 
 def _mapped_concept(ctx: CheckContext, concept_id: str) -> MappedRow | None:
