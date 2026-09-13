@@ -658,6 +658,66 @@ def test_below_breakeven_without_volume_is_silent() -> None:
     assert not any("безубыт" in (q.prompt or "").casefold() for q in result.questions)
 
 
+def test_negative_npv_mapped_is_warning() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="NPV")],
+        sheet="Val",
+        axis=headers((2, "Base", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("Val", 2, "NPV", "val.npv", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("Val", "B2", "-50")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "negative_npv")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "Val!B2" in found[0].cell_refs
+
+
+def test_positive_npv_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="NPV")],
+        sheet="Val",
+        axis=headers((2, "Base", "scenario")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("Val", 2, "NPV", "val.npv", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("Val", "B2", "80")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "negative_npv")
+
+
+def test_npv_without_mapping_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="FCF")],
+        axis=headers((2, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "FCF", "cf.fcf", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "-50")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "negative_npv")
+    assert not any("npv" in (q.prompt or "").casefold() for q in result.questions)
+
+
 def test_dedup_same_detector_and_refs() -> None:
     result = run_checks(
         ctx(

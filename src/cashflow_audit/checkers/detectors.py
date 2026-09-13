@@ -467,6 +467,28 @@ def detect_below_breakeven(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_negative_npv(ctx: CheckContext) -> list[Candidate]:
+    row = _mapped_concept(ctx, "val.npv")
+    if row is None:
+        return []
+    found: list[Candidate] = []
+    for cell in ctx.cells:
+        if cell["sheet"] != row.sheet or int(cell["row"]) != row.row:
+            continue
+        val = as_number(cell.get("cached_value"))
+        if val is None or val >= 0.0:
+            continue
+        found.append(
+            Candidate(
+                detector="negative_npv",
+                cell_refs=[_ref(cell)],
+                payload={"delta": val},
+                base_severity="warning",
+            )
+        )
+    return found
+
+
 def _header_cols(ctx: CheckContext, row: MappedRow) -> dict[str, int]:
     block = _block_for(ctx, row.sheet, row.row)
     if block is None:
