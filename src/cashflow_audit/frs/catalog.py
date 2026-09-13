@@ -48,7 +48,12 @@ CATALOG: tuple[ControlSpec, ...] = (
         frozenset({"cf.repayment"}),
         axis="finest",
     ),
-    ControlSpec("F10", "Процентный / валютный", frozenset({"pnl.interest"})),
+    ControlSpec(
+        "F10",
+        "Процентный / валютный",
+        frozenset({"pnl.interest"}),
+        nice=frozenset({"fx.rate"}),
+    ),
     ControlSpec("F11", "Агрессивность предпосылок", frozenset({"pnl.revenue"})),
     ControlSpec(
         "F12",

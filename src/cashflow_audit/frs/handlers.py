@@ -530,9 +530,30 @@ def handle_f09(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
 def handle_f10(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
     if book_totals(ctx).get("pnl.interest") is None:
         return _na(spec_id, name), None
-    return (
-        _insufficient(spec_id, name, metrics={"fx": None}, evidence="FX не рассчитан"),
-        None,
+    fx = book_totals(ctx).get("fx.rate")
+    if fx is None:
+        return (
+            _insufficient(spec_id, name, metrics={"fx": None}, evidence="FX не рассчитан"),
+            None,
+        )
+    slots = month_slots(ctx, fx) or year_slots(ctx, fx)
+    fx_vals = [
+        val
+        for key, cols in slots
+        if (val := cell_value(ctx, fx, cols[0])) is not None
+    ]
+    if not fx_vals:
+        return (
+            _insufficient(spec_id, name, metrics={"fx": None}, evidence="FX не рассчитан"),
+            None,
+        )
+    return _finish(
+        spec_id,
+        name,
+        [],
+        {"fx": "mapped"},
+        "assumptions",
+        "medium",
     )
 
 

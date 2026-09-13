@@ -309,6 +309,41 @@ def test_f10_without_fx_is_insufficient() -> None:
     assert not any(i.control_id == "F10" for i in doc.issues)
 
 
+def test_f10_with_mapped_fx_rate_is_clear() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Interest")],
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="FX rate")],
+            sheet="Inputs",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Interest", "pnl.interest", role="calculation"),
+            mapped("Inputs", 2, "FX rate", "fx.rate", role="assumption"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "5"),
+            cell("P&L", "C2", "8"),
+            cell("P&L", "D2", "12"),
+            cell("Inputs", "B2", "80"),
+            cell("Inputs", "C2", "80"),
+            cell("Inputs", "D2", "80"),
+        ],
+    )
+    row = _control(doc, "F10")
+    assert row.status == "clear"
+    assert not any(i.control_id == "F10" for i in doc.issues)
+
+
 def test_f12_revenue_up_fcf_down_is_flagged() -> None:
     layout = _stack(
         simple_layout([LayoutRow(row=2, label="Rev")], sheet="P&L", axis=YEARS),
