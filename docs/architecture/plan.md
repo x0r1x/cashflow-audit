@@ -330,6 +330,8 @@ I6: `EBITDA ≈ revenue − COGS − OPEX` если все четыре mapped. 
 
 I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error). Нет net CF → не Finding. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
 
+I3b: `opening RE + NI − dividends + mapped bs.re_adj = closing`. Нет корректировки — не выдумываем. I13 — итог капитала, не НП.
+
 I9: косвенный мост `CFO ≈ NI + D&A − ΔAR − ΔInv + ΔAP`. Нет NI/CFO или нет ни D&A, ни WC → Question. Отсутствующая статья WC/D&A = 0, не угадывание знака.
 
 I10: `opening + drawdown − repayment + mapped fx.debt = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. Нет `fx.debt` — курс/переоценку не выдумываем.

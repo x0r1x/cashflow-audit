@@ -313,6 +313,99 @@ def test_i3b_without_re_concept_is_question() -> None:
     assert not [c for c in result.candidates if c.detector == "identity.I3b"]
 
 
+def test_i3b_mapped_adjustment_explains_gap_is_silent() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [
+                LayoutRow(row=2, label="RE"),
+                LayoutRow(row=3, label="RE adjustment"),
+            ],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="NI")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Div")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "RE", "bs.retained_earnings", role="output"),
+            mapped("BS", 3, "RE adjustment", "bs.re_adj", role="calculation"),
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "Div", "cf.dividends", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "125"),
+                cell("BS", "C3", "15"),
+                cell("P&L", "C2", "20"),
+                cell("CF", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I3b"]
+
+
+def test_i3b_mapped_adjustment_still_broken_is_error() -> None:
+    layout = _stack_identity(
+        simple_layout(
+            [
+                LayoutRow(row=2, label="RE"),
+                LayoutRow(row=3, label="RE adjustment"),
+            ],
+            sheet="BS",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="NI")],
+            sheet="P&L",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Div")],
+            sheet="CF",
+            axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "RE", "bs.retained_earnings", role="output"),
+            mapped("BS", 3, "RE adjustment", "bs.re_adj", role="calculation"),
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "Div", "cf.dividends", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "140"),
+                cell("BS", "C3", "15"),
+                cell("P&L", "C2", "20"),
+                cell("CF", "C2", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3b"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C3" in found[0].cell_refs
+
+
 def test_i1_reports_every_broken_period() -> None:
     layout = simple_layout(
         [

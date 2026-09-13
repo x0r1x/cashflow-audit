@@ -53,6 +53,8 @@ concepts:
     labels: [Inventory, Запасы]
   - id: bs.retained_earnings
     labels: [Retained earnings, Нераспределённая прибыль]
+  - id: bs.re_adj
+    labels: [RE adjustment, Prior period adjustment, Корректировка НП]
   - id: cf.cfo
     labels: [CFO, Cash from operations]
   - id: cf.da
