@@ -11,6 +11,7 @@ from cashflow_audit.parse.a1 import format_addr
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
 I3A_CONCEPTS = ("bs.cash", "cf.fcf")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
+I13_CONCEPTS = ("bs.equity", "pnl.net_income", "cf.dividends")
 I4_CONCEPTS = ("pnl.revenue", "pnl.volume", "pnl.price")
 I5_CONCEPTS = ("pnl.gross_profit", "pnl.revenue", "pnl.cogs")
 I6_CONCEPTS = ("pnl.ebitda", "pnl.revenue", "pnl.cogs", "pnl.opex")
@@ -49,6 +50,14 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
         candidates.extend(_i3b(ctx, group["bs.retained_earnings"], group["pnl.net_income"], div))
+    if "cf.dividends" in book and "bs.equity" not in book:
+        qn = _maybe_question(questions, qn, "I13", ("bs.equity",), book, ctx)
+    elif "cf.dividends" in book and "pnl.net_income" not in book:
+        qn = _maybe_question(questions, qn, "I13", ("pnl.net_income",), book, ctx)
+    for group in _groups(by_block, book, I13_CONCEPTS):
+        candidates.extend(
+            _i13(ctx, group["bs.equity"], group["pnl.net_income"], group["cf.dividends"])
+        )
     if "pnl.revenue" in book and "pnl.volume" in book and "pnl.price" not in book:
         qn = _maybe_question(questions, qn, "I4", ("pnl.price",), book, ctx)
     elif "pnl.revenue" in book and "pnl.price" in book and "pnl.volume" not in book:
@@ -376,6 +385,18 @@ def _i3b(
             )
         )
     return found
+
+
+def _i13(
+    ctx: CheckContext,
+    equity: MappedRow,
+    ni: MappedRow,
+    div: MappedRow,
+) -> list[Candidate]:
+    return [
+        item.model_copy(update={"detector": "identity.I13"})
+        for item in _i3b(ctx, equity, ni, div)
+    ]
 
 
 def _i10(
