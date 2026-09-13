@@ -21,6 +21,7 @@ from cashflow_audit.checkers.detectors import (
     detect_volume_without_ap,
     detect_volume_without_capex,
     detect_volume_without_cogs,
+    detect_volume_without_headcount,
     detect_volume_without_inventory,
     detect_volume_without_wc,
     detect_xlm_or_vba,
@@ -53,6 +54,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_volume_without_ap(ctx))
     candidates.extend(detect_volume_without_capex(ctx))
     candidates.extend(detect_volume_without_cogs(ctx))
+    candidates.extend(detect_volume_without_headcount(ctx))
     candidates.extend(detect_volume_without_inventory(ctx))
     candidates.extend(detect_volume_without_wc(ctx))
     identity, questions = detect_identities(ctx)

@@ -73,3 +73,5 @@ concepts:
     labels: [IRR, Internal rate of return, ВНД]
   - id: val.wacc
     labels: [WACC, Discount rate, Ставка дисконта]
+  - id: ops.headcount
+    labels: [Headcount, FTE, Численность]
