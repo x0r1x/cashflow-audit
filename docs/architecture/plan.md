@@ -332,7 +332,7 @@ I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — ca
 
 I9: косвенный мост `CFO ≈ NI + D&A − ΔAR − ΔInv + ΔAP`. Нет NI/CFO или нет ни D&A, ни WC → Question. Отсутствующая статья WC/D&A = 0, не угадывание знака.
 
-I10: `opening + drawdown − repayment = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. FX в равенство не выдумываем.
+I10: `opening + drawdown − repayment + mapped fx.debt = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. Нет `fx.debt` — курс/переоценку не выдумываем.
 
 I11: `interest ≈ rate × среднее(opening, closing) долга`. Ставка > 1 трактуется как проценты (12 → 0.12). `period_key=YYYY-MM` → делить годовой купон на 12. Нет ставки или долга → Question, не выдуманный купон.
 

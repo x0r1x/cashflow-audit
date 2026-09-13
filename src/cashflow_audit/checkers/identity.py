@@ -127,9 +127,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
     for group in _groups(by_block, book, I10_STOCK):
         draw = group.get("cf.drawdown") or book.get("cf.drawdown")
         repay = group.get("cf.repayment") or book.get("cf.repayment")
+        fx = group.get("fx.debt") or book.get("fx.debt")
         if draw is None and repay is None:
             continue
-        candidates.extend(_i10(ctx, group["bs.debt"], draw, repay))
+        candidates.extend(_i10(ctx, group["bs.debt"], draw, repay, fx))
     qn = _maybe_question(questions, qn, "I11", I11_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I11_CONCEPTS):
         candidates.extend(
@@ -404,10 +405,12 @@ def _i10(
     debt: MappedRow,
     draw: MappedRow | None,
     repay: MappedRow | None,
+    fx: MappedRow | None = None,
 ) -> list[Candidate]:
     slots = _aligned(ctx, debt)
     draw_cols = _axis_cols(ctx, draw) if draw is not None else {}
     repay_cols = _axis_cols(ctx, repay) if repay is not None else {}
+    fx_cols = _axis_cols(ctx, fx) if fx is not None else {}
     found: list[Candidate] = []
     for prev, cur in zip(slots, slots[1:], strict=False):
         _pkey, prev_cols = prev
@@ -416,6 +419,7 @@ def _i10(
         closing = _value(ctx, debt, cur_cols[0])
         drawn = 0.0
         repaid = 0.0
+        fx_amt = 0.0
         if draw is not None and key in draw_cols:
             part = _value(ctx, draw, draw_cols[key])
             if part is None:
@@ -426,9 +430,14 @@ def _i10(
             if part is None:
                 continue
             repaid = part
+        if fx is not None and key in fx_cols:
+            part = _value(ctx, fx, fx_cols[key])
+            if part is None:
+                continue
+            fx_amt = part
         if opening is None or closing is None:
             continue
-        expected = opening + drawn - repaid
+        expected = opening + drawn - repaid + fx_amt
         thresh = max(1.0, 0.001 * max(abs(opening), abs(closing)))
         if abs(closing - expected) <= thresh:
             continue
@@ -437,6 +446,8 @@ def _i10(
             refs.append(_cell_ref(draw, draw_cols[key]))
         if repay is not None and key in repay_cols:
             refs.append(_cell_ref(repay, repay_cols[key]))
+        if fx is not None and key in fx_cols:
+            refs.append(_cell_ref(fx, fx_cols[key]))
         found.append(
             Candidate(
                 detector="identity.I10",

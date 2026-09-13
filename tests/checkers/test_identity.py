@@ -772,6 +772,79 @@ def test_i10_without_flows_is_question_not_finding() -> None:
     assert any("I10" in (q.prompt or "") for q in result.questions)
 
 
+def test_i10_mapped_fx_explains_gap_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Draw"),
+            LayoutRow(row=4, label="Repay"),
+            LayoutRow(row=5, label="Debt FX"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("BS", 3, "Draw", "cf.drawdown", role="calculation"),
+            mapped("BS", 4, "Repay", "cf.repayment", role="calculation"),
+            mapped("BS", 5, "Debt FX", "fx.debt", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "140"),
+                cell("BS", "C3", "50"),
+                cell("BS", "C4", "20"),
+                cell("BS", "C5", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I10"]
+
+
+def test_i10_mapped_fx_still_broken_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Debt"),
+            LayoutRow(row=3, label="Draw"),
+            LayoutRow(row=4, label="Repay"),
+            LayoutRow(row=5, label="Debt FX"),
+        ],
+        sheet="BS",
+        axis=headers((2, "2023", "historical"), (3, "2024E", "forecast")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("BS", 3, "Draw", "cf.drawdown", role="calculation"),
+            mapped("BS", 4, "Repay", "cf.repayment", role="calculation"),
+            mapped("BS", 5, "Debt FX", "fx.debt", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "100"),
+                cell("BS", "C2", "150"),
+                cell("BS", "C3", "50"),
+                cell("BS", "C4", "20"),
+                cell("BS", "C5", "10"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I10"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C5" in found[0].cell_refs
+
+
 def test_i7_balanced_is_negative() -> None:
     layout = simple_layout(
         [
