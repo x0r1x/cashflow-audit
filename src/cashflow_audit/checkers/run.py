@@ -11,6 +11,7 @@ from cashflow_audit.checkers.detectors import (
     detect_hidden_input,
     detect_scenario_switch,
     detect_series,
+    detect_stress_rate_unchanged,
     detect_unresolved_dynamic,
     detect_unused_cell,
     detect_xlm_or_vba,
@@ -35,6 +36,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_unused_cell(ctx))
     candidates.extend(detect_hidden_input(ctx))
     candidates.extend(detect_scenario_switch(ctx))
+    candidates.extend(detect_stress_rate_unchanged(ctx))
     identity, questions = detect_identities(ctx)
     candidates.extend(identity)
     candidates = _dedup(candidates)

@@ -307,6 +307,7 @@ Label column — левая видимая строковая в блоке (ski
 | `scenario_switch` | live-итоги тянут разные scenario-листы (P&L Base, долг Upside); полные копии Base/Upside не флаг |
 | `unused_cell` | не reaches(mapped outputs), cap 50 |
 | `hidden_input` | hidden в формуле видимого output; иначе tag |
+| `stress_rate_unchanged` | Downside режет выручку, mapped ставка не выше Base; нет ставки — молчит |
 | I1, I3a, I3b, I5, I7, I8, I8b, I9, I10, I11, I12 | IdentityResolver; нет concept → Question |
 
 IdentityResolver: один total **в блоке** (не сумма с детьми; не смешивать итоги двух блоков). Если ни один блок не содержит полный набор concept — fallback на книгу (межлистовые I3a/I3b). Период по `period_key` оси, не по номеру колонки. Snapshot (I1, I5, I7, I8, I12): `historical|forecast|stub|scenario`. Rollforward (I3a, I3b, I8b, I9, I10, I11): не `scenario`/`total` — колонки сценария не склеиваются как соседние годы. Finding на **каждый** сломанный период, не первый. Check-row кросс-проверка I1, не второй finding. `cell_refs` — все стороны равенства.
