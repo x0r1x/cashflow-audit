@@ -188,6 +188,84 @@ def test_agg_range_gap_positive_and_full_range_negative() -> None:
     assert not _detectors(run_checks(full), "agg_range_gap")
 
 
+def test_agg_double_count_subtotal_in_parent_sum_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Staff"),
+            LayoutRow(row=3, label="Rent"),
+            LayoutRow(row=4, label="OPEX"),
+            LayoutRow(row=5, label="Total"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "1"),
+                cell("P&L", "B3", "1"),
+                cell("P&L", "B4", "2", formula="SUM(B2:B3)"),
+                cell("P&L", "B5", "4", formula="SUM(B2:B4)"),
+            ],
+            layout=layout,
+        )
+    )
+    found = _detectors(result, "agg_double_count")
+    assert found
+    assert found[0].base_severity == "error"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B4" in found[0].cell_refs
+    assert "P&L!B5" in found[0].cell_refs
+
+
+def test_agg_double_count_disjoint_sums_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="COGS a"),
+            LayoutRow(row=3, label="COGS b"),
+            LayoutRow(row=4, label="COGS"),
+            LayoutRow(row=5, label="OPEX a"),
+            LayoutRow(row=6, label="OPEX b"),
+            LayoutRow(row=7, label="OPEX"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "1"),
+                cell("P&L", "B3", "1"),
+                cell("P&L", "B4", "2", formula="SUM(B2:B3)"),
+                cell("P&L", "B5", "1"),
+                cell("P&L", "B6", "1"),
+                cell("P&L", "B7", "2", formula="SUM(B5:B6)"),
+            ],
+            layout=layout,
+        )
+    )
+    assert not _detectors(result, "agg_double_count")
+
+
+def test_agg_double_count_check_row_same_range_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Staff"),
+            LayoutRow(row=3, label="Rent"),
+            LayoutRow(row=4, label="OPEX"),
+            LayoutRow(row=5, label="Check", check_row=True),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "1"),
+                cell("P&L", "B3", "1"),
+                cell("P&L", "B4", "2", formula="SUM(B2:B3)"),
+                cell("P&L", "B5", "2", formula="SUM(B2:B3)"),
+            ],
+            layout=layout,
+        )
+    )
+    assert not _detectors(result, "agg_double_count")
+
+
 def test_unused_cell_positive_and_used_negative() -> None:
     mapping = MappingDocument(
         rows=[mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output")]

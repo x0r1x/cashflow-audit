@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from cashflow_audit.checkers.context import CheckContext
 from cashflow_audit.checkers.detectors import (
+    detect_agg_double_count,
     detect_agg_range_gap,
     detect_circular,
     detect_error_masking,
@@ -29,6 +30,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_xlm_or_vba(ctx))
     candidates.extend(detect_series(ctx))
     candidates.extend(detect_agg_range_gap(ctx))
+    candidates.extend(detect_agg_double_count(ctx))
     candidates.extend(detect_unused_cell(ctx))
     candidates.extend(detect_hidden_input(ctx))
     identity, questions = detect_identities(ctx)

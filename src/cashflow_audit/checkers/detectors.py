@@ -187,6 +187,62 @@ def detect_agg_range_gap(ctx: CheckContext) -> list[Candidate]:
     return found
 
 
+def detect_agg_double_count(ctx: CheckContext) -> list[Candidate]:
+    aggregators: list[tuple[str, set[str]]] = []
+    sum_refs: set[str] = set()
+    for cell in ctx.cells:
+        ast = parse_ast(cell)
+        ranges = sum_ranges(ast, cell["sheet"])
+        if not ranges:
+            continue
+        block = _block_for(ctx, cell["sheet"], int(cell["row"]))
+        if block is None:
+            continue
+        row_meta = next((item for item in block.rows if item.row == int(cell["row"])), None)
+        if row_meta is not None and row_meta.check_row:
+            continue
+        sum_ref = _ref(cell)
+        sum_refs.add(sum_ref)
+        col = int(cell["col"])
+        covered: set[str] = set()
+        for target in ranges:
+            cells, _trunc = expand_range(target)
+            for item in cells:
+                if item == sum_ref:
+                    continue
+                sheet, _, addr = item.partition("!")
+                if sheet != cell["sheet"]:
+                    continue
+                try:
+                    item_col, _row = parse_addr(addr)
+                except ValueError:
+                    continue
+                if item_col != col:
+                    continue
+                covered.add(item)
+        aggregators.append((sum_ref, covered))
+    by_leaf: dict[str, list[str]] = {}
+    for sum_ref, covered in aggregators:
+        for leaf in covered:
+            if leaf in sum_refs:
+                continue
+            by_leaf.setdefault(leaf, []).append(sum_ref)
+    found: list[Candidate] = []
+    for leaf, sums in by_leaf.items():
+        uniq = list(dict.fromkeys(sums))
+        if len(uniq) < 2:
+            continue
+        found.append(
+            Candidate(
+                detector="agg_double_count",
+                cell_refs=[leaf, *uniq],
+                payload={"sums": uniq},
+                base_severity="error",
+            )
+        )
+    return found
+
+
 def detect_unused_cell(ctx: CheckContext) -> list[Candidate]:
     outputs = _output_refs(ctx)
     if not outputs:
