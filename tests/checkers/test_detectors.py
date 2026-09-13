@@ -657,6 +657,82 @@ def test_conflicting_fx_same_quote_is_silent() -> None:
     assert not _detectors(result, "conflicting_fx")
 
 
+def test_scale_mismatch_thousands_vs_millions_is_warning() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="Revenue"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "Revenue", "pnl.revenue", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "100000"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = _detectors(result, "scale_mismatch")
+    assert found
+    assert found[0].base_severity == "warning"
+    assert "P&L!B2" in found[0].cell_refs
+    assert "P&L!B3" in found[0].cell_refs
+
+
+def test_scale_mismatch_nearby_values_are_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="Revenue"),
+        ],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "Revenue", "pnl.revenue", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("P&L", "B2", "100"),
+                cell("P&L", "B3", "110"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "scale_mismatch")
+
+
+def test_scale_mismatch_single_mapping_is_silent() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=headers((2, "2023", "historical")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    result = run_checks(
+        ctx(
+            [cell("P&L", "B2", "100")],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not _detectors(result, "scale_mismatch")
+
+
 def test_below_breakeven_contribution_below_opex_is_warning() -> None:
     layout = simple_layout(
         [

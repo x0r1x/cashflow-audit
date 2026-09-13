@@ -40,6 +40,7 @@ TRUST_DETECTORS = frozenset(
         "stress_rate_unchanged",
         "conflicting_rate",
         "conflicting_fx",
+        "scale_mismatch",
         "hidden_input",
         "external_link",
     }

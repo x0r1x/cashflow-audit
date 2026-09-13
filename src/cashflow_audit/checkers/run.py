@@ -14,6 +14,7 @@ from cashflow_audit.checkers.detectors import (
     detect_hidden_input,
     detect_irr_below_wacc,
     detect_negative_npv,
+    detect_scale_mismatch,
     detect_scenario_switch,
     detect_series,
     detect_stress_rate_unchanged,
@@ -50,6 +51,7 @@ def run_checks(ctx: CheckContext) -> CheckDocument:
     candidates.extend(detect_stress_rate_unchanged(ctx))
     candidates.extend(detect_conflicting_rate(ctx))
     candidates.extend(detect_conflicting_fx(ctx))
+    candidates.extend(detect_scale_mismatch(ctx))
     candidates.extend(detect_below_breakeven(ctx))
     candidates.extend(detect_negative_npv(ctx))
     candidates.extend(detect_irr_below_wacc(ctx))
