@@ -48,6 +48,7 @@ def test_two_axes_on_one_sheet_become_two_blocks() -> None:
     assert len(sheet.blocks) == 2
     roles_0 = [h.role for h in sheet.blocks[0].axis.headers]
     assert roles_0 == ["historical", "forecast"]
+    assert [h.period_key for h in sheet.blocks[0].axis.headers] == ["2023", "2024"]
     assert all(h.role in {"historical", "forecast"} for h in sheet.blocks[1].axis.headers)
     assert sheet.blocks[0].axis.headers[0].col == 2
     assert "concept_id" not in sheet.blocks[0].rows[0].model_dump()
@@ -129,6 +130,21 @@ def test_monthly_headers_form_a_period_axis() -> None:
     block = layout.sheets[0].blocks[0]
     keys = [h.period_key for h in block.axis.headers]
     assert keys == ["2025-01", "2025-02"]
+
+
+def test_plain_year_and_e_suffix_share_calendar_key() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "2024"),
+        _c("P&L", "C1", "2024E"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "100"),
+        _c("P&L", "C2", "80"),
+    ]
+    layout = detect_layout(cells)
+    headers = layout.sheets[0].blocks[0].axis.headers
+    assert [h.period_key for h in headers] == ["2024", "2024"]
+    assert [h.role for h in headers] == ["historical", "forecast"]
 
 
 def test_plan_fact_headers_share_period_key() -> None:
