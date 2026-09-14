@@ -194,6 +194,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         if capex is None and da is None:
             continue
         candidates.extend(_i8b(ctx, group["bs.ppe"], capex, da, fx))
+    ppe_sheets = _concept_by_sheet(ctx, "bs.ppe")
+    for index, left in enumerate(ppe_sheets):
+        for right in ppe_sheets[index + 1 :]:
+            candidates.extend(_eop_mismatch(ctx, "identity.I8b", left, right))
     return candidates, questions
 
 
