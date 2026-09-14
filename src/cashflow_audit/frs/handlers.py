@@ -138,11 +138,14 @@ def handle_f02(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         r1, r1_refs = year_amount(ctx, rev, ckey)
         refs = [*e0_refs, *e1_refs, *r1_refs]
         if e0 is not None and e1 is not None and e0 != 0.0 and e1 / e0 - 1.0 <= -YOY_DROP:
+            metrics = {"change": e1 / e0 - 1.0, "period_key": ckey}
+            if r1 not in (None, 0.0):
+                metrics["margin"] = e1 / r1  # type: ignore[operator]
             return _finish(
                 spec_id,
                 name,
                 refs,
-                {"change": e1 / e0 - 1.0, "period_key": ckey},
+                metrics,
                 "assumptions",
                 "low",
             )
@@ -153,11 +156,24 @@ def handle_f02(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                     spec_id,
                     name,
                     refs,
-                    {"margin_drop": drop, "period_key": ckey},
+                    {
+                        "margin_drop": drop,
+                        "margin": e1 / r1,
+                        "period_key": ckey,
+                    },
                     "assumptions",
                     "low",
                 )
-    return _finish(spec_id, name, [], {}, "assumptions", "low")
+    metrics: dict = {}
+    for key, _cols in reversed(slots):
+        e_last, _ = year_amount(ctx, ebitda, key)
+        r_last, _ = year_amount(ctx, rev, key)
+        if e_last is None or r_last in (None, 0.0):
+            continue
+        metrics["margin"] = e_last / r_last  # type: ignore[operator]
+        metrics["period_key"] = key
+        break
+    return _finish(spec_id, name, [], metrics, "assumptions", "low")
 
 
 def handle_f03(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:

@@ -3,7 +3,9 @@ from __future__ import annotations
 from tests.checkers.conftest import cell, headers, mapped, simple_layout
 
 from cashflow_audit.frs.router import run_frs
-from cashflow_audit.layout.models import LayoutRow
+from cashflow_audit.layout.detect import detect_layout
+from cashflow_audit.layout.models import AxisHeader, LayoutRow
+from cashflow_audit.layout.periods import classify_header
 from cashflow_audit.mapping.models import MappingDocument
 
 
@@ -150,6 +152,17 @@ def test_f01_plan_fact_gap_is_flagged() -> None:
     assert "P&L!D2" in row.cell_refs
 
 
+def _classified(*cols: tuple[int, str]) -> list[AxisHeader]:
+    found: list[AxisHeader] = []
+    for col, text in cols:
+        hit = classify_header(text)
+        assert hit is not None
+        found.append(
+            AxisHeader(col=col, text=text, role=hit.role, period_key=hit.period_key)
+        )
+    return found
+
+
 def test_f01_plan_fact_within_band_is_clear() -> None:
     layout = simple_layout(
         [LayoutRow(row=2, label="Revenue")],
@@ -169,6 +182,78 @@ def test_f01_plan_fact_within_band_is_clear() -> None:
     assert _control(doc, "F01").status == "clear"
 
 
+def test_f01_plain_year_vs_e_suffix_is_plan_fact() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=_classified((2, "2024"), (3, "2024E")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[cell("P&L", "B2", "100"), cell("P&L", "C2", "80")],
+    )
+    row = _control(doc, "F01")
+    assert row.status == "flagged"
+    assert row.metrics.get("period_key") == "2024"
+    assert "P&L!B2" in row.cell_refs
+    assert "P&L!C2" in row.cell_refs
+
+
+def test_f01_hist_year_vs_next_forecast_is_not_plan_fact() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=_classified((2, "2023"), (3, "2024E")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[cell("P&L", "B2", "100"), cell("P&L", "C2", "95")],
+    )
+    assert _control(doc, "F01").status == "clear"
+    assert not any(i.control_id == "F01" for i in doc.issues)
+
+
+def test_f01_month_plan_fact_gap_is_flagged() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=_classified((2, "янв.25 факт"), (3, "янв.25 план")),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[cell("P&L", "B2", "100"), cell("P&L", "C2", "80")],
+    )
+    row = _control(doc, "F01")
+    assert row.status == "flagged"
+    assert row.metrics.get("period_key") == "2025-01"
+
+
+def test_f01_plan_fact_from_detected_layout() -> None:
+    cells = [
+        cell("P&L", "A1", "Item"),
+        cell("P&L", "B1", "2024"),
+        cell("P&L", "C1", "2024E"),
+        cell("P&L", "A2", "Revenue"),
+        cell("P&L", "B2", "100"),
+        cell("P&L", "C2", "80"),
+    ]
+    layout = detect_layout(cells)
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(mapping, layout=layout, cells=cells)
+    assert _control(doc, "F01").status == "flagged"
+
+
 def test_f01_growth_is_clear() -> None:
     layout = simple_layout([LayoutRow(row=2, label="Revenue")])
     mapping = MappingDocument(
@@ -181,6 +266,63 @@ def test_f01_growth_is_clear() -> None:
     )
     assert _control(doc, "F01").status == "clear"
     assert not any(i.control_id == "F01" for i in doc.issues)
+
+
+def test_f02_clear_keeps_forecast_margin() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="EBITDA"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "110"),
+            cell("P&L", "B3", "50"),
+            cell("P&L", "C3", "55"),
+        ],
+    )
+    row = _control(doc, "F02")
+    assert row.status == "clear"
+    assert row.metrics.get("margin") == 55 / 110
+
+
+def test_f02_margin_drop_is_flagged() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="EBITDA"),
+        ]
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "120"),
+            cell("P&L", "B3", "50"),
+            cell("P&L", "C3", "48"),
+        ],
+    )
+    row = _control(doc, "F02")
+    assert row.status == "flagged"
+    assert row.metrics.get("margin") == 48 / 120
+    assert row.metrics.get("margin_drop") == 48 / 120 - 50 / 100
 
 
 def test_f03_two_negative_forecast_periods_flagged() -> None:
