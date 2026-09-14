@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# All audit routes: POST file, GET status, GET report, POST answers (HITL).
+# All audit routes: POST file, GET status, GET step content, POST answers (HITL).
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
@@ -29,13 +29,21 @@ printf '%s\n' "$audit_id" >"${RUN_DIR}/audit_id.txt"
 
 poll_audit "$audit_id" "${RUN_DIR}/03-status.json"
 
-code="$(http_get "/v1/audits/${audit_id}/report" "${RUN_DIR}/04-report.json" auth)"
-echo "GET /v1/audits/${audit_id}/report -> ${code}"
-if [[ "$code" != "200" ]]; then
-  echo "report not ready" >&2
-  cat "${RUN_DIR}/04-report.json" >&2
-  exit 1
-fi
+get_content() {
+  local prefix="$1"
+  local name code
+  for name in layout mapping integrity report; do
+    code="$(http_get "/v1/audits/${audit_id}/${name}" "${RUN_DIR}/${prefix}-${name}.json" auth)"
+    echo "GET /v1/audits/${audit_id}/${name} -> ${code}"
+    if [[ "$code" != "200" ]]; then
+      echo "${name} not ready" >&2
+      cat "${RUN_DIR}/${prefix}-${name}.json" >&2
+      return 1
+    fi
+  done
+}
+
+get_content "04"
 
 n_answers="$(answers_from_report "${RUN_DIR}/04-report.json" "${RUN_DIR}/05-answers-body.json")"
 echo "POST answers n=${n_answers}"
@@ -49,13 +57,7 @@ fi
 
 if [[ "$code" == "202" ]]; then
   poll_audit "$audit_id" "${RUN_DIR}/06-status.json"
-  code="$(http_get "/v1/audits/${audit_id}/report" "${RUN_DIR}/07-report.json" auth)"
-  echo "GET /v1/audits/${audit_id}/report (after answers) -> ${code}"
-  if [[ "$code" != "200" ]]; then
-    echo "report after answers not ready" >&2
-    cat "${RUN_DIR}/07-report.json" >&2
-    exit 1
-  fi
+  get_content "07"
 fi
 
 echo "saved ${RUN_DIR}"

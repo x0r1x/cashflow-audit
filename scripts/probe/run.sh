@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Full probe: healthz + readyz, then sample_full_model.xlsx → report in scripts/probe-out/.
+# Full probe: healthz + readyz, then sample workbook → step content in probe-out/.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh

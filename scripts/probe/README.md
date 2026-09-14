@@ -30,11 +30,17 @@ bash scripts/probe/run.sh
 | `01-readyz.json` | `GET /readyz` |
 | `02-post.json` | `POST /v1/audits` (multipart `file`) |
 | `03-status.json` | `GET /v1/audits/{id}` |
+| `04-layout.json` | `GET /v1/audits/{id}/layout` |
+| `04-mapping.json` | `GET /v1/audits/{id}/mapping` |
+| `04-integrity.json` | `GET /v1/audits/{id}/integrity` |
 | `04-report.json` | `GET /v1/audits/{id}/report` |
 | `05-answers-body.json` | тело HITL (первый option каждой question) |
 | `05-answers.json` | `POST /v1/audits/{id}/answers` (`202` или `409`) |
 | `06-status.json` | статус после answers, если был `202` |
-| `07-report.json` | отчёт после HITL, если был `202` |
+| `07-layout.json` | layout после HITL, если был `202` |
+| `07-mapping.json` | mapping после HITL, если был `202` |
+| `07-integrity.json` | integrity после HITL, если был `202` |
+| `07-report.json` | тонкий FRS-отчёт после HITL, если был `202` |
 | `audit_id.txt` | id прогона |
 
 `readyz` со `status=degraded` — норма: аудиты принимаются без LLM. `503 not_ready` — Redis недоступен, скрипт останавливается.
@@ -45,7 +51,7 @@ bash scripts/probe/run.sh
 
 ```bash
 bash scripts/probe/health.sh          # GET /healthz, GET /readyz
-bash scripts/probe/audit.sh           # POST /v1/audits, GET status, GET report, POST answers
+bash scripts/probe/audit.sh           # POST, status, layout/mapping/integrity/report, answers
 ```
 
 Если задать `RUN_DIR`, оба пишут в него; `run.sh` задаёт общий каталог сам.
@@ -87,5 +93,5 @@ SAMPLE="resources/Примеры excel/sample_3stmt.xlsx" bash scripts/probe/aud
 - `readyz not ready` — нет Redis (для compose: `docker compose up`).
 - `upload failed` — смотрите `02-post.json` (`missing_actor` не должен случиться: заголовок ставит скрипт).
 - `timeout after 180s` — job ещё `queued`/`running`; увеличьте `PROBE_TIMEOUT_SEC` или смотрите логи `serve`.
-- `report not ready` — статус терминальный, но `GET …/report` не 200; смотрите `03-status.json` и `04-report.json` (`failed` отчёта не отдаёт).
+- `<step> not ready` — статус терминальный, но `GET …/<step>` не 200; смотрите `03-status.json` и соответствующий `04-<step>.json` (`failed` итоговые документы не отдаёт).
 - `POST …/answers` `409` — вопросов не было или job уже в очереди; маршрут всё равно вызван, тело в `05-answers.json`.
