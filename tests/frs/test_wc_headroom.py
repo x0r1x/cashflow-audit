@@ -468,6 +468,53 @@ def test_f14_without_covenants_is_insufficient() -> None:
     assert not any(i.control_id == "F14" for i in doc.issues)
 
 
+def test_f14_insufficient_includes_leverage_snapshots() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="Cash"), LayoutRow(row=3, label="Debt")],
+            sheet="BS",
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="EBITDA"), LayoutRow(row=3, label="Interest")],
+            sheet="P&L",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped("BS", 3, "Debt", "bs.debt", role="output"),
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+            mapped("P&L", 3, "Interest", "pnl.interest", role="calculation"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "10"),
+            cell("BS", "C2", "10"),
+            cell("BS", "D2", "10"),
+            cell("BS", "B3", "100"),
+            cell("BS", "C3", "80"),
+            cell("BS", "D3", "120"),
+            cell("P&L", "B2", "50"),
+            cell("P&L", "C2", "50"),
+            cell("P&L", "D2", "50"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "10"),
+        ],
+    )
+    row = _control(doc, "F14")
+    assert row.status == "insufficient"
+    assert row.metrics.get("min_cash") == 10.0
+    assert row.metrics.get("nd_ebitda") == (120 - 10) / 50
+    assert row.metrics.get("icr") == 5.0
+    assert "ковенант" in row.evidence.casefold()
+
+
 def test_f14_negative_headroom_is_flagged() -> None:
     layout = _stack(
         simple_layout(

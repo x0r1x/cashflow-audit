@@ -333,7 +333,11 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                 "medium",
                 confidence="medium",
             )
-    return _finish(spec_id, name, [], {}, "leverage", "medium", confidence="medium")
+    key, ratio, _refs = ratios[-1]
+    metrics: dict = {"ratio": ratio, "period_key": key}
+    if len(ratios) > 1:
+        metrics["prev_ratio"] = ratios[-2][1]
+    return _finish(spec_id, name, [], metrics, "leverage", "medium", confidence="medium")
 
 
 def _coverage_extrema(
@@ -361,12 +365,17 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         return _na(spec_id, name), None
     slots = year_slots(ctx, ebitda, interest)
     worst: tuple[str, float, list[str]] | None = None
+    min_icr: float | None = None
+    min_key: str | None = None
     for key, _cols in slots:
         e, e_refs = year_amount(ctx, ebitda, key)
         i, i_refs = year_amount(ctx, interest, key)
         if e is None or i is None or i == 0.0:
             continue
         icr = e / abs(i)
+        if min_icr is None or icr < min_icr:
+            min_icr = icr
+            min_key = key
         if icr >= ICR_FLOOR:
             continue
         refs = [*e_refs, *i_refs]
@@ -401,7 +410,14 @@ def handle_f07(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         metrics["period_key"] = period_key
         return _finish(spec_id, name, refs, metrics, "leverage", "high")
     if worst is None:
-        return _finish(spec_id, name, [], mins, "leverage", "medium")
+        metrics: dict = dict(mins)
+        if min_icr is not None:
+            metrics["icr"] = min_icr
+            metrics["period_key"] = min_key
+        evidence = "DSCR не рассчитан" if mins.get("dscr") is None else ""
+        return _finish(
+            spec_id, name, [], metrics, "leverage", "medium", evidence=evidence
+        )
     key, icr, refs = worst
     priority = "high" if icr < ICR_HIGH else "medium"
     return _finish(
@@ -471,7 +487,15 @@ def handle_f08(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
             "medium",
             cause="cash_plug",
         )
-    return _finish(spec_id, name, [], metrics, "liquidity", "high")
+    return _finish(
+        spec_id,
+        name,
+        [],
+        metrics,
+        "liquidity",
+        "high",
+        evidence="не иссякает",
+    )
 
 
 def handle_f13(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
@@ -704,6 +728,7 @@ def handle_f14(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     metrics: dict = {}
     if cash_vals:
         metrics["min_cash"] = min(cash_vals)
+    _f14_snapshots(ctx, metrics)
     headroom = book_totals(ctx).get("covenant.headroom")
     if headroom is None:
         return (
@@ -736,6 +761,34 @@ def handle_f14(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         "leverage",
         "high",
     )
+
+
+def _f14_snapshots(ctx: FrsCtx, metrics: dict) -> None:
+    totals = book_totals(ctx)
+    debt, ebitda = totals.get("bs.debt"), totals.get("pnl.ebitda")
+    if debt is not None and ebitda is not None:
+        ratios: list[float] = []
+        for key, _cols in year_slots(ctx, debt, ebitda):
+            d, _ = year_amount(ctx, debt, key)
+            e, _ = year_amount(ctx, ebitda, key)
+            if d is None or e is None or e <= 0.0:
+                continue
+            cash_val, _ = value_at(ctx, "bs.cash", key)
+            net = d - cash_val if cash_val is not None else d
+            ratios.append(net / e)
+        if ratios:
+            metrics["nd_ebitda"] = max(ratios)
+    interest = totals.get("pnl.interest")
+    if ebitda is not None and interest is not None:
+        icrs: list[float] = []
+        for key, _cols in year_slots(ctx, ebitda, interest):
+            e, _ = year_amount(ctx, ebitda, key)
+            i, _ = year_amount(ctx, interest, key)
+            if e is None or i is None or i == 0.0:
+                continue
+            icrs.append(e / abs(i))
+        if icrs:
+            metrics["icr"] = min(icrs)
 
 
 def _record_days_lift(

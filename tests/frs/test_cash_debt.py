@@ -280,7 +280,11 @@ def test_f06_debt_up_ratio_down_is_clear() -> None:
             cell("P&L", "D2", "160"),
         ],
     )
-    assert _control(doc, "F06").status == "clear"
+    row = _control(doc, "F06")
+    assert row.status == "clear"
+    assert row.metrics.get("ratio") == 216 / 160
+    assert row.metrics.get("prev_ratio") == 216 / 151
+    assert row.metrics.get("period_key") == "2025E"
 
 
 def test_f06_uses_net_debt_when_cash_mapped() -> None:
@@ -429,6 +433,7 @@ def test_f07_mapped_dscr_above_one_is_clear() -> None:
     row = _control(doc, "F07")
     assert row.status == "clear"
     assert row.metrics.get("dscr") == 1.4
+    assert "не рассчитан" not in row.evidence
     assert not any(i.control_id == "F07" for i in doc.issues)
 
 
@@ -630,7 +635,11 @@ def test_f07_uses_ebitda_not_ebit() -> None:
             cell("P&L", "D4", "10"),
         ],
     )
-    assert _control(doc, "F07").status == "clear"
+    row = _control(doc, "F07")
+    assert row.status == "clear"
+    assert "DSCR не рассчитан" in row.evidence
+    assert row.metrics.get("dscr") is None
+    assert row.metrics.get("icr") == 3.0
 
 
 def test_f08_year_axis_is_insufficient() -> None:
@@ -676,6 +685,29 @@ def test_f08_negative_month_is_flagged() -> None:
     assert issue.priority == "high"
     assert issue.class_name == "liquidity"
     assert "BS!D2" in row.cell_refs
+
+
+def test_f08_positive_cash_does_not_run_out() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Cash")], sheet="BS", axis=MONTHS
+    )
+    mapping = MappingDocument(
+        rows=[mapped("BS", 2, "Cash", "bs.cash", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "100"),
+            cell("BS", "C2", "80"),
+            cell("BS", "D2", "60"),
+        ],
+    )
+    row = _control(doc, "F08")
+    assert row.status == "clear"
+    assert row.metrics.get("runway") is None
+    assert "не иссякает" in row.evidence
+    assert not any(i.control_id == "F08" for i in doc.issues)
 
 
 def test_f08_cash_plug_is_not_clear() -> None:

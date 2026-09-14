@@ -123,6 +123,8 @@ def _liquidity_text(f08: ControlResult | None, f09: ControlResult | None) -> str
         min_cash = f08.metrics.get("min_cash")
         if isinstance(runway, (int, float)):
             parts.append(f"F08 runway {_fmt(runway)} периодов до отрицательной кассы")
+        elif "не иссякает" in (f08.evidence or ""):
+            parts.append("F08 касса не иссякает")
         elif isinstance(min_cash, (int, float)):
             parts.append(f"F08 min cash {_fmt(min_cash)} ({f08.status})")
         else:
