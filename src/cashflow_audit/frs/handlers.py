@@ -73,8 +73,9 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         change = after / before - 1.0
         role = period_role(ctx, row, ckey)
         if role == "forecast" and change <= -YOY_DROP:
-            flagged_refs = [*before_refs, *after_refs]
-            metrics = {"change": change, "period_key": ckey}
+            drivers, driver_refs = _f01_drivers(ctx, pkey, ckey)
+            flagged_refs = _uniq([*before_refs, *after_refs, *driver_refs])
+            metrics = {"change": change, "period_key": ckey, **drivers}
             break
         if (
             period_role(ctx, row, pkey) == "historical"
@@ -87,6 +88,23 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
             break
         prev_yoy = change
     return _finish(spec_id, name, flagged_refs, metrics, "assumptions", "low")
+
+
+def _f01_drivers(ctx: FrsCtx, pkey: str, ckey: str) -> tuple[dict, list[str]]:
+    totals = book_totals(ctx)
+    vol, price = totals.get("pnl.volume"), totals.get("pnl.price")
+    if vol is None or price is None:
+        return {}, []
+    v0, v0_refs = year_amount(ctx, vol, pkey)
+    v1, v1_refs = year_amount(ctx, vol, ckey)
+    p0, p0_refs = year_amount(ctx, price, pkey)
+    p1, p1_refs = year_amount(ctx, price, ckey)
+    if v0 is None or v1 is None or p0 is None or p1 is None or v0 == 0.0 or p0 == 0.0:
+        return {}, []
+    return (
+        {"volume_change": v1 / v0 - 1.0, "price_change": p1 / p0 - 1.0},
+        [*v0_refs, *v1_refs, *p0_refs, *p1_refs],
+    )
 
 
 def handle_f02(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:

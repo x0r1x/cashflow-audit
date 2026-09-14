@@ -35,6 +35,53 @@ def test_f01_forecast_revenue_drop_is_flagged() -> None:
     row = _control(doc, "F01")
     assert row.status == "flagged"
     assert any(i.control_id == "F01" for i in doc.issues)
+    assert row.metrics.get("volume_change") is None
+    assert row.metrics.get("price_change") is None
+
+
+def test_f01_drop_with_mapped_volume_price_decomposes() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Revenue"),
+            LayoutRow(row=3, label="Volume"),
+            LayoutRow(row=4, label="Price"),
+        ],
+        axis=headers(
+            (2, "2023", "historical"),
+            (3, "2024E", "forecast"),
+            (4, "2025E", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "Revenue", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "Volume", "pnl.volume", role="assumption"),
+            mapped("P&L", 4, "Price", "pnl.price", role="assumption"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "110"),
+            cell("P&L", "D2", "80"),
+            cell("P&L", "B3", "10"),
+            cell("P&L", "C3", "10"),
+            cell("P&L", "D3", "8"),
+            cell("P&L", "B4", "10"),
+            cell("P&L", "C4", "11"),
+            cell("P&L", "D4", "10"),
+        ],
+    )
+    row = _control(doc, "F01")
+    assert row.status == "flagged"
+    assert row.metrics.get("volume_change") == (8 / 10) - 1.0
+    assert row.metrics.get("price_change") == (10 / 11) - 1.0
+    assert "P&L!C3" in row.cell_refs
+    assert "P&L!D3" in row.cell_refs
+    assert "P&L!C4" in row.cell_refs
+    assert "P&L!D4" in row.cell_refs
 
 
 def test_f01_plan_fact_gap_is_flagged() -> None:
