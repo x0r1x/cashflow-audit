@@ -1809,6 +1809,60 @@ def test_i8b_without_flows_is_question_not_finding() -> None:
     assert any("I8b" in (q.prompt or "") for q in result.questions)
 
 
+def test_i8b_bs_vs_schedule_ppe_mismatch_is_error() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="PPE")], sheet="BS")
+    fa = simple_layout([LayoutRow(row=2, label="PPE")], sheet="FA")
+    layout = Layout(sheets=[*bs.sheets, *fa.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("FA", 2, "PPE", "bs.ppe", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "300"),
+                cell("BS", "C2", "300"),
+                cell("FA", "B2", "300"),
+                cell("FA", "C2", "250"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I8b"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C2" in found[0].cell_refs
+    assert "FA!C2" in found[0].cell_refs
+
+
+def test_i8b_bs_vs_schedule_ppe_match_is_silent() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="PPE")], sheet="BS")
+    fa = simple_layout([LayoutRow(row=2, label="PPE")], sheet="FA")
+    layout = Layout(sheets=[*bs.sheets, *fa.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "PPE", "bs.ppe", role="output"),
+            mapped("FA", 2, "PPE", "bs.ppe", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "300"),
+                cell("BS", "C2", "300"),
+                cell("FA", "B2", "300"),
+                cell("FA", "C2", "300"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I8b"]
+
+
 def test_i8b_mapped_fx_explains_gap_is_silent() -> None:
     layout = _stack_identity(
         simple_layout(
