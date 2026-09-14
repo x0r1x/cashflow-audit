@@ -50,6 +50,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         candidates.extend(
             _rollforward(ctx, "identity.I3a", group["bs.cash"], flows, add=True)
         )
+    cash_sheets = _cash_by_sheet(ctx)
+    for index, left in enumerate(cash_sheets):
+        for right in cash_sheets[index + 1 :]:
+            candidates.extend(_i3a_eop(ctx, left, right))
     qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
@@ -313,6 +317,38 @@ def _minus(
                     _cell_ref(right, cols[2]),
                 ],
                 payload={"delta": delta, "col": cols[0], "period_key": key},
+                base_severity="error",
+            )
+        )
+    return found
+
+
+def _cash_by_sheet(ctx: CheckContext) -> list[MappedRow]:
+    chosen: dict[str, MappedRow] = {}
+    for row in ctx.mapping.rows:
+        if row.concept_id != "bs.cash":
+            continue
+        prev = chosen.get(row.sheet)
+        if prev is None or (row.article_role == "output" and prev.article_role != "output"):
+            chosen[row.sheet] = row
+    return list(chosen.values())
+
+
+def _i3a_eop(ctx: CheckContext, left: MappedRow, right: MappedRow) -> list[Candidate]:
+    found: list[Candidate] = []
+    for key, cols in _aligned(ctx, left, right, roles=_IDENTITY_SNAPSHOT_ROLES):
+        a = _value(ctx, left, cols[0])
+        b = _value(ctx, right, cols[1])
+        if a is None or b is None:
+            continue
+        thresh = max(1.0, 0.001 * max(abs(a), abs(b)))
+        if abs(a - b) <= thresh:
+            continue
+        found.append(
+            Candidate(
+                detector="identity.I3a",
+                cell_refs=[_cell_ref(left, cols[0]), _cell_ref(right, cols[1])],
+                payload={"col": cols[0], "period_key": key, "delta": a - b},
                 base_severity="error",
             )
         )

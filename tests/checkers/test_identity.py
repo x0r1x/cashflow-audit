@@ -247,6 +247,60 @@ def test_i3a_mapped_fx_still_broken_is_error() -> None:
     assert "CF!C4" in found[0].cell_refs
 
 
+def test_i3a_bs_vs_cf_cash_mismatch_is_error() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="Cash")], sheet="BS")
+    cf = simple_layout([LayoutRow(row=2, label="Cash")], sheet="CF")
+    layout = Layout(sheets=[*bs.sheets, *cf.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "500"),
+                cell("BS", "C2", "500"),
+                cell("CF", "B2", "500"),
+                cell("CF", "C2", "400"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C2" in found[0].cell_refs
+    assert "CF!C2" in found[0].cell_refs
+
+
+def test_i3a_bs_vs_cf_cash_match_is_silent() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="Cash")], sheet="BS")
+    cf = simple_layout([LayoutRow(row=2, label="Cash")], sheet="CF")
+    layout = Layout(sheets=[*bs.sheets, *cf.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "500"),
+                cell("BS", "C2", "500"),
+                cell("CF", "B2", "500"),
+                cell("CF", "C2", "500"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I3a"]
+
+
 def test_i3a_pairs_cash_and_fcf_across_sheets() -> None:
     bs = simple_layout([LayoutRow(row=2, label="Cash")], sheet="BS")
     cf = simple_layout([LayoutRow(row=3, label="FCF")], sheet="CF")
