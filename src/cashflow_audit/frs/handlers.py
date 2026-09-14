@@ -92,19 +92,33 @@ def handle_f01(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
 
 def _f01_drivers(ctx: FrsCtx, pkey: str, ckey: str) -> tuple[dict, list[str]]:
     totals = book_totals(ctx)
+    extra: dict = {}
+    refs: list[str] = []
     vol, price = totals.get("pnl.volume"), totals.get("pnl.price")
-    if vol is None or price is None:
-        return {}, []
-    v0, v0_refs = year_amount(ctx, vol, pkey)
-    v1, v1_refs = year_amount(ctx, vol, ckey)
-    p0, p0_refs = year_amount(ctx, price, pkey)
-    p1, p1_refs = year_amount(ctx, price, ckey)
-    if v0 is None or v1 is None or p0 is None or p1 is None or v0 == 0.0 or p0 == 0.0:
-        return {}, []
-    return (
-        {"volume_change": v1 / v0 - 1.0, "price_change": p1 / p0 - 1.0},
-        [*v0_refs, *v1_refs, *p0_refs, *p1_refs],
-    )
+    if vol is not None and price is not None:
+        v0, v0_refs = year_amount(ctx, vol, pkey)
+        v1, v1_refs = year_amount(ctx, vol, ckey)
+        p0, p0_refs = year_amount(ctx, price, pkey)
+        p1, p1_refs = year_amount(ctx, price, ckey)
+        if (
+            v0 is not None
+            and v1 is not None
+            and p0 is not None
+            and p1 is not None
+            and v0 != 0.0
+            and p0 != 0.0
+        ):
+            extra["volume_change"] = v1 / v0 - 1.0
+            extra["price_change"] = p1 / p0 - 1.0
+            refs.extend([*v0_refs, *v1_refs, *p0_refs, *p1_refs])
+    fx = totals.get("fx.rate")
+    if fx is not None:
+        r0, r0_refs = year_amount(ctx, fx, pkey)
+        r1, r1_refs = year_amount(ctx, fx, ckey)
+        if r0 is not None and r1 is not None and r0 != 0.0:
+            extra["fx_change"] = r1 / r0 - 1.0
+            refs.extend([*r0_refs, *r1_refs])
+    return extra, refs
 
 
 def handle_f02(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
