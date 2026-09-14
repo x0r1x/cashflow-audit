@@ -247,31 +247,19 @@ def handle_f04(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         if cfo1 > cfo0 and fcf1 < fcf0:  # type: ignore[operator]
             diverged_refs = refs
             break
-    if len(red) < 2 and not diverged_refs:
-        return _finish(
-            spec_id,
-            name,
-            [],
-            {"fcf_source": source},
-            "cash_conversion",
-            "medium",
-            confidence="medium" if source == "derived" else "high",
-        )
     keys = [key for key, _refs in red]
     refs = [ref for _key, item in red for ref in item]
     refs.extend(diverged_refs)
-    cause = _f04_cause(ctx, ni, keys)
-    snap_key = keys[0] if keys else (points[1][0] if len(points) > 1 else None)
-    metrics: dict = {"period_keys": keys, "fcf_source": source, "cause": cause}
+    cause_keys = keys if keys else [key for key, _cols in slots]
+    cause = _f04_cause(ctx, ni, cause_keys)
+    snap_key = keys[0] if keys else (points[-1][0] if points else None)
+    metrics: dict = {"fcf_source": source, "cause": cause}
+    if keys:
+        metrics["period_keys"] = keys
     if snap_key is not None:
-        ni_snap, _ = year_amount(ctx, ni, snap_key)
-        cfo_snap, _ = value_at(ctx, "cf.cfo", snap_key)
-        fcf_snap, _ = _fcf_at(ctx, snap_key)
-        metrics["ni"] = ni_snap
-        metrics["cfo"] = cfo_snap
-        metrics["fcf"] = fcf_snap
-        if ni_snap is not None and cfo_snap is not None:
-            metrics["accruals"] = ni_snap - cfo_snap
+        _f04_attach_series(ctx, ni, snap_key, metrics)
+    if len(red) < 2 and not diverged_refs:
+        refs = []
     return _finish(
         spec_id,
         name,
@@ -488,20 +476,23 @@ def handle_f13(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
         draw, draw_ref = value_at(ctx, "cf.drawdown", key)
         repay, repay_ref = value_at(ctx, "cf.repayment", key)
         metrics: dict = {"fcff": fcff, "period_key": key, "fcf_source": source}
+        net_borrow: float | None = None
         if draw is not None or repay is not None:
-            metrics["fcfe"] = fcff + (draw or 0.0) - (repay or 0.0)
+            net_borrow = (draw or 0.0) - (repay or 0.0)
+            metrics["fcfe"] = fcff + net_borrow
         refs = [*div_refs, *fcf_refs]
         if draw_ref:
             refs.append(draw_ref)
         if repay_ref:
             refs.append(repay_ref)
+        priority = "high" if net_borrow is not None and net_borrow > 0.0 else "medium"
         return _finish(
             spec_id,
             name,
             _uniq(refs),
             metrics,
             "dividend_policy",
-            "high",
+            priority,
         )
     return _finish(spec_id, name, [], {"fcf_source": source}, "dividend_policy", "high")
 
@@ -781,6 +772,21 @@ def _fcf_at(ctx: FrsCtx, key: str) -> tuple[float | None, list[str]]:
             return None, []
         return cfo + capex, [*cfo_refs, *capex_refs]
     return None, []
+
+
+def _f04_attach_series(
+    ctx: FrsCtx, ni: MappedRow, key: str, metrics: dict
+) -> None:
+    totals = book_totals(ctx)
+    ni_snap, _ = year_amount(ctx, ni, key)
+    metrics["ni"] = ni_snap
+    if "cf.cfo" in totals:
+        cfo_snap, _ = value_at(ctx, "cf.cfo", key)
+        metrics["cfo"] = cfo_snap
+        if ni_snap is not None and cfo_snap is not None:
+            metrics["accruals"] = ni_snap - cfo_snap
+    fcf_snap, _ = _fcf_at(ctx, key)
+    metrics["fcf"] = fcf_snap
 
 
 def _f04_cause(ctx: FrsCtx, ni_row: MappedRow, flagged: list[str]) -> str:

@@ -50,7 +50,6 @@ _FILE_UNCHANGED = "Проверить указанные ячейки. Файл 
 EMPTY_HEADLINE = (
     "По включённым проверкам явных разрывов не найдено. Полнота не гарантируется."
 )
-DYNAMICS_HEADLINE = "По равенствам явных разрывов нет; есть сигналы риска."
 MAPPING_NOTE = "Маппинг неполный, равенства могут молчать."
 
 
@@ -117,17 +116,28 @@ def build_conclusions(
 
 
 def headline_for(
-    conclusions: Sequence[Conclusion],
+    _conclusions: Sequence[Conclusion],
     findings: Sequence[Finding],
     questions: Sequence[object],
+    issues: Sequence[object] | None = None,
 ) -> str:
-    if not findings:
-        text = EMPTY_HEADLINE
-    elif any(item.kind in {"combo", "trust"} for item in conclusions):
-        titles = [item.title for item in conclusions if item.kind in {"combo", "trust"}][:2]
-        text = "; ".join(titles)
-    elif any(item.kind == "dynamics" for item in conclusions):
-        text = DYNAMICS_HEADLINE
+    trust = next(
+        (item for item in findings if item.severity == "error"),
+        None,
+    )
+    high = None
+    for item in issues or []:
+        priority = getattr(item, "priority", None)
+        ident = getattr(item, "id", "")
+        control = getattr(item, "control_id", "")
+        if priority == "high":
+            high = item
+            break
+    if trust is not None:
+        text = f"{trust.title} ({trust.id})"
+    elif high is not None:
+        title = card_title(f"frs.{control}") if control else str(ident)
+        text = f"{title} ({ident})"
     else:
         text = EMPTY_HEADLINE
     if questions:

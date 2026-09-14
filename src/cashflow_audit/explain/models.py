@@ -19,6 +19,12 @@ class ExplainCard(BaseModel):
     cited_refs: list[str] = Field(default_factory=list)
 
 
+class IssueProse(BaseModel):
+    cause: str
+    impact: str
+    cited_refs: list[str] = Field(default_factory=list)
+
+
 class Finding(BaseModel):
     id: str
     severity: Severity
@@ -96,6 +102,7 @@ class Report(BaseModel):
     issues: list[FrsIssue] = Field(default_factory=list)
     positives: list[Positive] = Field(default_factory=list)
     verdict: Verdict = Field(default_factory=Verdict)
+    integrity_findings: list[Finding] = Field(default_factory=list, exclude=True)
 
 
 class JobMeta(BaseModel):

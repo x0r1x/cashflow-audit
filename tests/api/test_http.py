@@ -567,3 +567,81 @@ def test_content_routes_200_and_audit_lists_urls(tmp_path: Path, book: Path) -> 
         assert urls["mapping"] == f"/v1/audits/{audit_id}/mapping"
         assert urls["integrity"] == f"/v1/audits/{audit_id}/integrity"
         assert urls["report"] == f"/v1/audits/{audit_id}/report"
+
+
+def test_report_is_thin_integrity_stays_on_its_route(
+    tmp_path: Path, book: Path
+) -> None:
+    data = book.read_bytes()
+    sha = sha256_bytes(data)
+    audit_id = audit_id_for("u1", sha)
+    with api_client(tmp_path) as (client, data_root, _bus):
+        dest = data_root / "audits" / audit_id
+        _seed_report(dest, actor="u1", filename="m.xlsx", sha=sha)
+        write_json(
+            dest / "report.json",
+            {
+                "audit_id": audit_id,
+                "source_filename": "m.xlsx",
+                "sha256": sha,
+                "status": "succeeded",
+                "llm_used": False,
+                "embeddings_used": False,
+                "summary": {
+                    "findings": 0,
+                    "by_severity": {"error": 0, "warning": 0, "risk": 0},
+                    "questions": 0,
+                    "headline": "Баланс не сходится (f_001)",
+                },
+                "findings": [],
+                "issues": [
+                    {
+                        "id": "B-F04",
+                        "control_id": "F04",
+                        "class_name": "cash_conversion",
+                        "priority": "medium",
+                        "metrics": {},
+                        "cell_refs": ["CF!E12"],
+                        "cause": "ops",
+                        "impact": "",
+                    }
+                ],
+                "questions": [],
+                "verdict": {"ready_for_credit": False},
+            },
+        )
+        write_json(
+            dest / "integrity.json",
+            {
+                "findings": [
+                    {
+                        "id": "f_001",
+                        "severity": "error",
+                        "detector": "excel_error",
+                        "cell_refs": ["P&L!B2"],
+                        "title": "Ячейка содержит ошибку Excel",
+                        "evidence": "x",
+                        "impact": "y",
+                        "recommendation": "z",
+                    }
+                ]
+            },
+        )
+        report = client.get(
+            f"/v1/audits/{audit_id}/report", headers={"X-Actor-Id": "u1"}
+        )
+        integrity = client.get(
+            f"/v1/audits/{audit_id}/integrity", headers={"X-Actor-Id": "u1"}
+        )
+        assert report.status_code == 200
+        body = report.json()
+        assert body["findings"] == []
+        assert body["issues"][0]["id"] == "B-F04"
+        assert "excel_error" not in str(body.get("findings"))
+        assert integrity.status_code == 200
+        assert integrity.json()["findings"][0]["detector"] == "excel_error"
+        forbidden = client.get(
+            f"/v1/audits/{audit_id}/report", headers={"X-Actor-Id": "bob"}
+        )
+        assert forbidden.status_code == 403
+

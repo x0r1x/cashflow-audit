@@ -5,6 +5,7 @@ import logging
 from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.errors import PortError
 from cashflow_audit.explain.compose import compose_report
+from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
 from tests.helpers.ports import CapBudget, DenySlots, FakeChat, GrantSlots
@@ -38,6 +39,36 @@ def _lin(index: int = 0, **kwargs) -> LineageItem:
     return LineageItem.model_validate(base)
 
 
+def _issue(control_id: str = "F04", **kwargs) -> FrsIssue:
+    base: dict = {
+        "id": f"B-{control_id}",
+        "control_id": control_id,
+        "class_name": "cash_conversion",
+        "priority": "medium",
+        "metrics": {"ni": 1200.0, "cfo": 400.0},
+        "cell_refs": ["P&L!B2"],
+        "cause": "ops",
+        "impact": "",
+    }
+    base.update(kwargs)
+    return FrsIssue.model_validate(base)
+
+
+def _frs(*issues: FrsIssue) -> FrsDocument:
+    controls = [
+        ControlResult(
+            id=issue.control_id,
+            name=issue.control_id,
+            status="flagged",
+            cell_refs=list(issue.cell_refs),
+            metrics=dict(issue.metrics),
+            issue_id=issue.id,
+        )
+        for issue in issues
+    ]
+    return FrsDocument(controls=controls, issues=list(issues))
+
+
 def test_template_is_always_complete() -> None:
     report = compose_report(
         candidates=[_cand()],
@@ -48,7 +79,8 @@ def test_template_is_always_complete() -> None:
         chat=None,
         slots=GrantSlots(),
     )
-    finding = report.findings[0]
+    assert report.findings == []
+    finding = report.integrity_findings[0]
     assert finding.title
     assert finding.evidence
     assert finding.recommendation
@@ -58,7 +90,7 @@ def test_template_is_always_complete() -> None:
 
 def test_chat_skips_excel_error_cards() -> None:
     chat = FakeChat(
-        payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
+        payload={"cause": "LLM", "impact": "e", "cited_refs": []}
     )
     report = compose_report(
         candidates=[_cand()],
@@ -71,14 +103,13 @@ def test_chat_skips_excel_error_cards() -> None:
     )
     assert chat.calls == 0
     assert report.status == "succeeded"
-    assert report.findings[0].detector == "excel_error"
+    assert report.findings == []
+    assert report.integrity_findings[0].detector == "excel_error"
     assert report.verdict.ready_for_credit is False
 
 
 def test_configured_chat_without_findings_is_succeeded() -> None:
-    chat = FakeChat(
-        payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
-    )
+    chat = FakeChat(payload={"cause": "LLM", "impact": "e", "cited_refs": []})
     report = compose_report(
         candidates=[],
         lineage=LineageDocument(),
@@ -91,23 +122,24 @@ def test_configured_chat_without_findings_is_succeeded() -> None:
     assert report.status == "succeeded"
     assert report.llm_used is False
     assert report.findings == []
+    assert report.integrity_findings == []
     assert chat.calls == 0
 
 
-def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
+def test_llm_rewrites_issue_prose_not_numbers() -> None:
     chat = FakeChat(
         payload={
-            "title": "LLM title",
-            "evidence": "LLM evidence P&L!B2",
-            "recommendation": "Проверить. Файл не изменён.",
+            "cause": "Прибыль не конвертируется в кэш",
+            "impact": "FCF отстаёт при NI 1200",
             "need_user_input": False,
             "cited_refs": ["P&L!B2"],
             "detector": "hacked",
             "cell_refs": ["Hack!Z9"],
-            "affected_metrics": ["fcf"],
-            "impact": "nope",
+            "metrics": {"ni": 1},
+            "priority": "high",
         }
     )
+    issue = _issue()
     report = compose_report(
         candidates=[_cand(detector="frs.F04", payload={"delta": 1200})],
         lineage=LineageDocument(
@@ -115,6 +147,7 @@ def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
                 _lin(
                     impact=Impact(kind="numeric", value=1200.0),
                     affected_metrics=["pnl.ebitda"],
+                    detector="frs.F04",
                 )
             ]
         ),
@@ -123,23 +156,25 @@ def test_llm_does_not_change_detector_refs_metrics_impact() -> None:
         ir_refs={"P&L!B2", "P&L!C3"},
         chat=chat,
         slots=GrantSlots(),
+        frs=_frs(issue),
     )
-    finding = report.findings[0]
-    assert finding.detector == "frs.F04"
-    assert finding.cell_refs == ["P&L!B2"]
-    assert finding.affected_metrics == ["pnl.ebitda"]
-    assert "1200" in finding.impact
-    assert finding.title == "LLM title"
+    assert report.findings == []
+    got = report.issues[0]
+    assert got.id == "B-F04"
+    assert got.control_id == "F04"
+    assert got.cell_refs == ["P&L!B2"]
+    assert got.metrics["ni"] == 1200.0
+    assert got.priority == "medium"
+    assert got.cause == "Прибыль не конвертируется в кэш"
+    assert "1200" in got.impact
     assert chat.calls == 1
 
 
 def test_cited_refs_outside_input_falls_back_to_template() -> None:
     chat = FakeChat(
         payload={
-            "title": "LLM-ONLY-TITLE",
-            "evidence": "x",
-            "recommendation": "y. Файл не изменён.",
-            "need_user_input": False,
+            "cause": "LLM-ONLY-CAUSE",
+            "impact": "LLM-ONLY-IMPACT",
             "cited_refs": ["Other!Z9"],
         }
     )
@@ -151,9 +186,32 @@ def test_cited_refs_outside_input_falls_back_to_template() -> None:
         ir_refs={"P&L!B2", "P&L!C3"},
         chat=chat,
         slots=GrantSlots(),
+        frs=_frs(_issue()),
     )
-    assert report.findings[0].title != "LLM-ONLY-TITLE"
-    assert report.findings[0].title
+    assert report.issues[0].cause != "LLM-ONLY-CAUSE"
+    assert report.issues[0].cause == "ops"
+
+
+def test_llm_invented_number_falls_back_to_template() -> None:
+    chat = FakeChat(
+        payload={
+            "cause": "Разрыв 9999",
+            "impact": "выдуманная цифра",
+            "cited_refs": ["P&L!B2"],
+        }
+    )
+    report = compose_report(
+        candidates=[_cand(detector="frs.F04")],
+        lineage=LineageDocument(items=[_lin(detector="frs.F04")]),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2", "P&L!C3"},
+        chat=chat,
+        slots=GrantSlots(),
+        frs=_frs(_issue()),
+    )
+    assert report.issues[0].cause == "ops"
+    assert report.issues[0].impact == ""
 
 
 def test_drop_finding_without_ir_ref() -> None:
@@ -167,6 +225,7 @@ def test_drop_finding_without_ir_ref() -> None:
         slots=GrantSlots(),
     )
     assert report.findings == []
+    assert report.integrity_findings == []
 
 
 def test_freeze_tags_cap_severity_at_warning() -> None:
@@ -179,7 +238,7 @@ def test_freeze_tags_cap_severity_at_warning() -> None:
         chat=None,
         slots=GrantSlots(),
     )
-    assert report.findings[0].severity == "warning"
+    assert report.integrity_findings[0].severity == "warning"
 
 
 def test_questions_union_and_dedup() -> None:
@@ -243,14 +302,13 @@ def test_related_ids_share_downstream_output() -> None:
         chat=None,
         slots=GrantSlots(),
     )
-    assert report.findings[1].id in report.findings[0].related_ids
-    assert report.findings[0].id in report.findings[1].related_ids
+    left, right = report.integrity_findings
+    assert right.id in left.related_ids
+    assert left.id in right.related_ids
 
 
 def test_denied_slot_does_not_call_chat_and_uses_template(caplog) -> None:
-    chat = FakeChat(
-        payload={"title": "LLM", "evidence": "e", "recommendation": "r", "cited_refs": []}
-    )
+    chat = FakeChat(payload={"cause": "LLM", "impact": "e", "cited_refs": []})
     caplog.set_level(logging.INFO, logger="cashflow_audit")
     report = compose_report(
         candidates=[_cand(detector="frs.F04")],
@@ -260,9 +318,10 @@ def test_denied_slot_does_not_call_chat_and_uses_template(caplog) -> None:
         ir_refs={"P&L!B2", "P&L!C3"},
         chat=chat,
         slots=DenySlots(),
+        frs=_frs(_issue()),
     )
     assert chat.calls == 0
-    assert report.findings[0].title != "LLM"
+    assert report.issues[0].cause == "ops"
     assert report.status == "degraded"
     assert report.llm_used is False
     assert any(
@@ -287,8 +346,9 @@ def test_chat_port_error_logs_port_fallback(caplog) -> None:
         ir_refs={"P&L!B2", "P&L!C3"},
         chat=BoomChat(),
         slots=GrantSlots(),
+        frs=_frs(_issue()),
     )
-    assert report.findings[0].title
+    assert report.issues[0].cause == "ops"
     assert report.status == "degraded"
     assert any(
         r.__dict__.get("event") == "port_fallback"
@@ -301,13 +361,13 @@ def test_chat_port_error_logs_port_fallback(caplog) -> None:
 def test_explain_stops_llm_when_budget_exhausted() -> None:
     chat = FakeChat(
         payload={
-            "title": "LLM title",
-            "evidence": "LLM evidence P&L!B2",
-            "recommendation": "Проверить. Файл не изменён.",
-            "need_user_input": False,
+            "cause": "LLM cause",
+            "impact": "LLM impact 1200",
             "cited_refs": ["P&L!B2"],
         }
     )
+    first = _issue("F04")
+    second = _issue("F08", cell_refs=["P&L!C2"], metrics={"min_cash": 1.0}, cause="cash_plug")
     report = compose_report(
         candidates=[
             _cand(detector="frs.F04"),
@@ -324,10 +384,41 @@ def test_explain_stops_llm_when_budget_exhausted() -> None:
         ir_refs={"P&L!B2", "P&L!C2", "P&L!C3"},
         chat=chat,
         slots=CapBudget({"llm": 1}),
+        frs=_frs(first, second),
     )
     assert chat.calls == 1
-    assert len(report.findings) == 2
-    assert report.findings[0].title == "LLM title"
-    assert report.findings[1].title != "LLM title"
-    assert report.findings[1].title
-    assert report.findings[1].evidence
+    assert report.findings == []
+    assert len(report.issues) == 2
+    assert report.issues[0].cause == "LLM cause"
+    assert report.issues[1].cause == "cash_plug"
+
+
+def test_headline_cites_integrity_error_over_high_issue() -> None:
+    high = _issue("F08", priority="high")
+    report = compose_report(
+        candidates=[
+            _cand(detector="identity.I1", cell_refs=["BS!E27"]),
+            _cand(detector="frs.F08", cell_refs=["P&L!B2"]),
+        ],
+        lineage=LineageDocument(
+            items=[
+                _lin(
+                    0,
+                    detector="identity.I1",
+                    cell_refs=["BS!E27"],
+                    output_refs=["BS!E27"],
+                    affected_metrics=["bs.assets"],
+                    path_refs=["BS!E27"],
+                ),
+                _lin(1, detector="frs.F08"),
+            ]
+        ),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"BS!E27", "P&L!B2", "P&L!C3"},
+        chat=None,
+        slots=GrantSlots(),
+        frs=_frs(high),
+    )
+    assert "f_001" in report.summary.headline
+    assert "B-F08" not in report.summary.headline

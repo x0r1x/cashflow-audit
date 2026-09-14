@@ -149,6 +149,78 @@ def test_i3a_does_not_treat_cfo_as_net_cash_flow() -> None:
     assert not [c for c in result.candidates if c.detector == "identity.I3a"]
 
 
+def test_i3a_derived_fcf_from_cfo_plus_capex() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Cash"),
+            LayoutRow(row=3, label="CFO"),
+            LayoutRow(row=4, label="CAPEX"),
+        ],
+        sheet="CF",
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "CFO", "cf.cfo", role="calculation"),
+            mapped("CF", 4, "CAPEX", "cf.capex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("CF", "B2", "100"),
+                cell("CF", "C2", "90"),
+                cell("CF", "B3", "10"),
+                cell("CF", "C3", "10"),
+                cell("CF", "B4", "-30"),
+                cell("CF", "C4", "-30"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "CF!B2" in found[0].cell_refs
+    assert "CF!C2" in found[0].cell_refs
+    assert "CF!C3" in found[0].cell_refs
+    assert "CF!C4" in found[0].cell_refs
+
+
+def test_i3a_capex_model_is_not_false_positive() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Cash"),
+            LayoutRow(row=3, label="CFO"),
+            LayoutRow(row=4, label="CAPEX"),
+        ],
+        sheet="CF",
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "CFO", "cf.cfo", role="calculation"),
+            mapped("CF", 4, "CAPEX", "cf.capex", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("CF", "B2", "100"),
+                cell("CF", "C2", "80"),
+                cell("CF", "B3", "10"),
+                cell("CF", "C3", "10"),
+                cell("CF", "B4", "-30"),
+                cell("CF", "C4", "-30"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I3a"]
+
+
 def test_i3a_fcf_rollforward_break() -> None:
     layout = simple_layout(
         [

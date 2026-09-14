@@ -72,15 +72,15 @@ def explain_workbook(
         slot_timeout_sec=slot_timeout_sec,
         frs=frs,
     )
-    screen = [item for item in report.findings if item.detector.startswith("frs.")]
-    integrity = [item for item in report.findings if not item.detector.startswith("frs.")]
     payload = report.model_dump(mode="json")
-    payload["findings"] = [item.model_dump(mode="json") for item in screen]
-    payload["summary"]["findings"] = len(screen)
     write_json(report_path, payload)
     write_json(
         integrity_path,
-        {"findings": [item.model_dump(mode="json") for item in integrity]},
+        {
+            "findings": [
+                item.model_dump(mode="json") for item in report.integrity_findings
+            ]
+        },
     )
     write_json(
         meta_path,
