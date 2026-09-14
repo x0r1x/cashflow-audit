@@ -88,6 +88,27 @@ def test_i3a_caps_mapped_f04_to_low() -> None:
     assert _control(broken, "F04").confidence == "low"
 
 
+def test_native_year_axis_keeps_high_confidence() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=YEARS,
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "100"),
+            cell("P&L", "C2", "110"),
+            cell("P&L", "D2", "120"),
+        ],
+    )
+    assert _control(doc, "F01").status == "clear"
+    assert _control(doc, "F01").confidence == "high"
+
+
 def test_i3b_caps_f13_to_low() -> None:
     layout = simple_layout(
         [LayoutRow(row=2, label="Div"), LayoutRow(row=3, label="FCF")],
