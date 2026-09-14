@@ -220,6 +220,29 @@ def test_defined_names_iterate_and_locale_hint(tmp_path: Path, dest: Path) -> No
     assert meta.locale_hint == "ru"
 
 
+def test_date1904_flag_does_not_decode_cached_value(tmp_path: Path, dest: Path) -> None:
+    source = tmp_path / "dates.xlsx"
+    build_xlsx(
+        source,
+        sheets=[
+            SheetSpec(
+                name="P&L",
+                cells=[
+                    CellSpec(addr="B1", value="44743", style=1),
+                ],
+            )
+        ],
+        cell_xfs=[0, 14],
+        date1904=True,
+    )
+    meta = parse_workbook(source, dest)
+    assert meta.date1904 is True
+    cells = load_cells(dest)
+    by = _by_addr(cells)
+    assert by[("P&L", "B1")]["cached_value"] == "44743"
+    assert by[("P&L", "B1")]["number_format"] == "mm-dd-yy"
+
+
 def test_parse_writes_only_raw_artifacts_no_findings(tmp_path: Path, dest: Path) -> None:
     source = tmp_path / "plain.xlsx"
     build_xlsx(

@@ -68,3 +68,34 @@ def test_layout_writes_json_registers_axes_and_no_findings(
         assert ("Check",) in checks
     finally:
         catalog.close()
+
+
+def test_layout_decodes_date_serial_from_workbook_meta(tmp_path: Path, dest: Path) -> None:
+    source = tmp_path / "dates.xlsx"
+    build_xlsx(
+        source,
+        sheets=[
+            SheetSpec(
+                name="P&L",
+                cells=[
+                    CellSpec(addr="A1", value="Item", type="s"),
+                    CellSpec(addr="B1", value="44743", style=1),
+                    CellSpec(addr="C1", value="44835", style=1),
+                    CellSpec(addr="A2", value="Revenue", type="s"),
+                    CellSpec(addr="B2", value="1"),
+                    CellSpec(addr="C2", value="2"),
+                ],
+            )
+        ],
+        shared_strings=["Item", "Revenue"],
+        cell_xfs=[0, 14],
+    )
+    parse_workbook(source, dest)
+    compile_workbook(dest)
+    catalog = IrCatalog.open(dest)
+    try:
+        layout = layout_workbook(dest, catalog)
+        keys = [h.period_key for h in layout.sheets[0].blocks[0].axis.headers]
+        assert keys == ["2022Q3", "2022Q4"]
+    finally:
+        catalog.close()

@@ -22,6 +22,7 @@ class WorkbookMeta(BaseModel):
     externals: list[str] = Field(default_factory=list)
     locale_hint: str | None = None
     iterate: bool = False
+    date1904: bool = False
     defined_names: list[DefinedName] = Field(default_factory=list)
 
 

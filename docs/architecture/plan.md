@@ -265,7 +265,7 @@ workbook.json: листы, макро/xlm, externals[], locale_hint.
 
 **Вход:** catalog.cells. **Выход:** `layout.json`.
 
-Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — regex `2025E` / `1 кв. 2025` / `янв.25` / `Jan-25` / `2025-01` / факт|план; строка биндится к оси **внутри блока**. Месяц → `period_key=YYYY-MM` (иначе `_period_count` не видит ось). Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка.
+Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — **полоса** заголовков: `2025E` / `1 кв. 2025` / `янв.25` / `Jan-25` / `2025-01` / `01.07.2022` / Excel serial с date-like format / факт|план; год и `N кв.` могут быть на разных рядах (year forward-fill). Пара «Начало периода / Конец периода» — одна ось, берём конец. Зерно (`YYYY` / `YYYYQn` / `YYYY-MM`) по каденсу всей оси; смешанный шаг не угадываем. Роль: суффикс/тег в ячейке, иначе ближайший маркер слева/сверху до следующего (баннер «Прогноз»/`Forecast`/`Факт`), иначе historical. Строка биндится к оси **внутри блока**. Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка. `cached_value` остаётся serial; decode только в layout.
 
 Имя листа — слабый признак. Роль периода ≠ роль статьи.
 
@@ -367,7 +367,7 @@ class Candidate(BaseModel):
 
 FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в книге, без двойного минуса), tag `derived`. DSCR/LLCR/PLCR только mapped-строка. Net debt = `bs.debt − bs.cash` если оба есть.
 
-Периоды по `period_key`. F01–F03, F06, F11 — год; F08/F09 — finest axis (месяц `YYYY-MM`); только год у F08 → `insufficient`.
+Периоды по `period_key`. F01–F03, F06, F11 — год (полный набор Q1–Q4 суммируется в год для потока, Q4 для стока; неполный год не годовой evidence); F08/F09 — finest axis (месяц `YYYY-MM`); только год или только квартал у F08 → `insufficient`.
 
 `ready_for_credit`: `false` если high-issue или identity error или `excel_error`; иначе `null` (не `true`).
 
@@ -391,7 +391,7 @@ FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в кни
 5. **F05 Оборотный капитал.** Меньше двух из `bs.ar|bs.inventory|bs.ap` → `not_applicable`. DSO = AR/(revenue/365); DIO = Inventory/(COGS/365); DPO = AP/(COGS/365). Нет COGS → DIO/DPO insufficient, DSO можно считать. Flag: DSO или DPO вырос минимум на 15 дней либо `ΔAR > 0.3·ΔRevenue`; дни и качество CFO остаются в evidence.
 6. **F06 Долговая нагрузка.** Net Debt = `bs.debt−bs.cash`; без cash допускается gross debt с confidence не выше medium. Flag: ND/EBITDA вырос минимум на 1.0x год к году или достиг 4.0x. Рост абсолютного долга при снижении коэффициента — clear.
 7. **F07 ICR / DSCR / LLCR / PLCR.** ICR = EBITDA/|interest|; flag при ICR < 1.5, priority high при < 1.0. DSCR/LLCR/PLCR проверять только по mapped `cov.*`, flag при < 1.0; из CFADS не считать. Отсутствующий DSCR отмечать в evidence, но не превращать ICR clear в insufficient.
-8. **F08 Ликвидность.** Finest axis, для v1 нужна месячная `YYYY-MM`; только год → insufficient. Flag high при любом EoP cash < 0. Evidence: min cash, период минимума и runway до первой отрицательной точки или «не иссякает». Почти постоянный EoP при `cf.drawdown > 0` — cash plug: insufficient с evidence, не positive и не `B-F08`.
+8. **F08 Ликвидность.** Finest axis, для v1 нужна месячная `YYYY-MM`; только год или только квартал → insufficient. Flag high при любом EoP cash < 0. Evidence: min cash, период минимума и runway до первой отрицательной точки или «не иссякает». Почти постоянный EoP при `cf.drawdown > 0` — cash plug: insufficient с evidence, не positive и не `B-F08`.
 9. **F09 Концентрация погашений.** Месячный `cf.repayment`. Flag, если максимум суммы погашений за календарный прогнозный год / все прогнозные погашения ≥ 30%; peak month — evidence. Без месячной оси — insufficient.
 10. **F10 Процентный / валютный риск.** Рост процентов вместе с долгом сам по себе не флаг. Нет mapped `fx.rate` → insufficient; курс есть → clear с evidence. Нулевой FX не доказывает отсутствие экспозиции, валютную пару не выдумываем.
 11. **F11 Агрессивность предпосылок.** Средний прогнозный YoY выручки минус средний исторический YoY ≥ 15 п.п. F01 и F11 не дублируют один флаг: F01 — падение, cliff или план-факт; F11 — прогноз существенно лучше истории.

@@ -63,6 +63,7 @@ def build_xlsx(
     defined_names: list[tuple[str, str]] | None = None,
     num_formats: dict[int, str] | None = None,
     cell_xfs: list[int] | None = None,
+    date1904: bool = False,
 ) -> Path:
     """Write a minimal xlsx/xlsm. cell_xfs is a list of numFmtId per xf index."""
     shared_strings = list(shared_strings or [])
@@ -188,7 +189,11 @@ def build_xlsx(
 
     members["xl/_rels/workbook.xml.rels"] = _rels_xml(sheet_rels + extra_wb_rels)
     members["xl/workbook.xml"] = _workbook_xml(
-        sheet_els, extra_wb_els, iterate=iterate, defined_names=defined_names
+        sheet_els,
+        extra_wb_els,
+        iterate=iterate,
+        defined_names=defined_names,
+        date1904=date1904,
     )
     members["[Content_Types].xml"] = _content_types(overrides)
     members["_rels/.rels"] = _rels_xml(
@@ -250,6 +255,7 @@ def _workbook_xml(
     *,
     iterate: bool,
     defined_names: list[tuple[str, str]],
+    date1904: bool = False,
 ) -> str:
     calc = '<calcPr iterate="1"/>' if iterate else ""
     names = ""
@@ -259,9 +265,11 @@ def _workbook_xml(
             for n, f in defined_names
         )
         names = f"<definedNames>{body}</definedNames>"
+    pr = '<workbookPr date1904="1"/>' if date1904 else ""
     return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         f'<workbook xmlns="{NS_MAIN}" xmlns:r="{NS_OD_REL}">'
+        f"{pr}"
         f'<sheets>{"".join(sheet_els)}</sheets>'
         f'{"".join(extra_els)}{names}{calc}'
         "</workbook>"

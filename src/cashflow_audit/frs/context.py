@@ -10,6 +10,7 @@ from cashflow_audit.parse.a1 import format_addr
 
 _MONTH_KEY = re.compile(r"^\d{4}-\d{2}$")
 _YEAR_KEY = re.compile(r"^\d{4}$")
+_QUARTER_KEY = re.compile(r"^(\d{4})Q([1-4])$")
 
 
 @dataclass
@@ -27,14 +28,45 @@ def year_slots(ctx: FrsCtx, *rows: MappedRow) -> list[tuple[str, list[int]]]:
     if ctx.layout is None:
         return []
     aligned = list(_aligned(ctx, *rows))  # type: ignore[arg-type]
-    native = [(key, cols) for key, cols in aligned if not _MONTH_KEY.fullmatch(key)]
-    if native:
-        return native
+    out: list[tuple[str, list[int]]] = []
+    seen_years: set[str] = set()
+    for key, cols in aligned:
+        if _MONTH_KEY.fullmatch(key) or _QUARTER_KEY.fullmatch(key):
+            continue
+        out.append((key, cols))
+        if _YEAR_KEY.fullmatch(key):
+            seen_years.add(key)
+    for year, cols in _complete_quarter_years(aligned):
+        if year not in seen_years:
+            out.append((year, cols))
+            seen_years.add(year)
+    if out:
+        return out
     by_year: dict[str, list[int]] = {}
     for key, cols in aligned:
         if _MONTH_KEY.fullmatch(key):
             by_year[key[:4]] = cols
     return [(year, cols) for year, cols in sorted(by_year.items())]
+
+
+def _complete_quarter_years(
+    aligned: list[tuple[str, list[int]]],
+) -> list[tuple[str, list[int]]]:
+    by_year: dict[str, dict[int, list[int]]] = {}
+    for key, cols in aligned:
+        match = _QUARTER_KEY.fullmatch(key)
+        if match is None:
+            continue
+        by_year.setdefault(match.group(1), {})[int(match.group(2))] = cols
+    out: list[tuple[str, list[int]]] = []
+    for year, quarters in sorted(by_year.items()):
+        if set(quarters) != {1, 2, 3, 4}:
+            continue
+        merged: list[int] = []
+        for qn in (1, 2, 3, 4):
+            merged.extend(quarters[qn])
+        out.append((year, merged))
+    return out
 
 
 def year_from_months(ctx: FrsCtx, *rows: MappedRow) -> bool:
@@ -97,11 +129,36 @@ def year_amount(ctx: FrsCtx, row: MappedRow, key: str) -> tuple[float | None, li
         if item_key.startswith(f"{key}-")
     ]
     months.sort()
-    if not months:
+    if months:
+        vals: list[float] = []
+        refs: list[str] = []
+        for _mkey, item_col in months:
+            val = cell_value(ctx, row, item_col)
+            if val is None:
+                continue
+            vals.append(val)
+            refs.append(cell_ref(row, item_col))
+        if not vals:
+            return None, []
+        if row.concept_id and row.concept_id.startswith("bs."):
+            return vals[-1], [refs[-1]]
+        return sum(vals), refs
+    quarters = [
+        (item_key, item_col)
+        for item_key, _role, item_col in header_roles(ctx, row)
+        if _QUARTER_KEY.fullmatch(item_key) and item_key.startswith(key)
+    ]
+    by_q: dict[int, tuple[str, int]] = {}
+    for item_key, item_col in quarters:
+        match = _QUARTER_KEY.fullmatch(item_key)
+        if match is not None and match.group(1) == key:
+            by_q[int(match.group(2))] = (item_key, item_col)
+    if set(by_q) != {1, 2, 3, 4}:
         return None, []
-    vals: list[float] = []
-    refs: list[str] = []
-    for _mkey, item_col in months:
+    vals = []
+    refs = []
+    for qn in (1, 2, 3, 4):
+        _qkey, item_col = by_q[qn]
         val = cell_value(ctx, row, item_col)
         if val is None:
             continue
@@ -146,4 +203,13 @@ def period_role(ctx: FrsCtx, row: MappedRow, key: str) -> str | None:
             if months:
                 months.sort(key=lambda header: header.period_key)
                 return months[-1].role
+            quarters = [
+                header
+                for header in block.axis.headers
+                if _QUARTER_KEY.fullmatch(header.period_key)
+                and header.period_key.startswith(key)
+            ]
+            if quarters:
+                quarters.sort(key=lambda header: header.period_key)
+                return quarters[-1].role
     return None
