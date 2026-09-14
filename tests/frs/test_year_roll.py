@@ -40,6 +40,7 @@ def test_f01_sums_months_into_calendar_year() -> None:
     row = _control(doc, "F01")
     assert row.status == "flagged"
     assert row.metrics.get("period_key") == "2025"
+    assert row.confidence == "medium"
 
 
 def test_f06_uses_last_month_stock_not_sum() -> None:
@@ -68,6 +69,7 @@ def test_f06_uses_last_month_stock_not_sum() -> None:
         ],
     )
     assert _control(doc, "F06").status == "clear"
+    assert _control(doc, "F06").confidence == "medium"
 
 
 def test_f04_accruals_are_ni_minus_cfo() -> None:

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from cashflow_audit.frs.catalog import CATALOG
-from cashflow_audit.frs.context import FrsCtx
+from cashflow_audit.frs.context import FrsCtx, book_totals, year_from_months
 from cashflow_audit.frs.handlers import (
     handle_f01,
     handle_f02,
@@ -77,6 +77,12 @@ def run_frs(
             )
             continue
         result, issue = handler(ctx, spec.id, spec.name)
+        if spec.axis == "year" and result.status in {"clear", "flagged"}:
+            totals = book_totals(ctx)
+            need_rows = [totals[cid] for cid in spec.need if cid in totals]
+            if need_rows and year_from_months(ctx, *need_rows):
+                current = result.confidence or "high"
+                result.confidence = _worse(current, "medium")
         controls.append(result)
         if issue is not None:
             issues.append(issue)

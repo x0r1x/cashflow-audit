@@ -169,6 +169,51 @@ def test_f05_dpo_from_cogs_not_revenue() -> None:
     assert row.metrics.get("dpo") == 25.0
 
 
+def test_f05_dio_lift_from_cogs_is_flagged() -> None:
+    layout = _stack(
+        simple_layout(
+            [LayoutRow(row=2, label="AR"), LayoutRow(row=3, label="Inv")],
+            sheet="BS",
+            axis=YEARS,
+        ),
+        simple_layout(
+            [LayoutRow(row=2, label="Rev"), LayoutRow(row=3, label="COGS")],
+            sheet="P&L",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "AR", "bs.ar", role="output"),
+            mapped("BS", 3, "Inv", "bs.inventory", role="output"),
+            mapped("P&L", 2, "Rev", "pnl.revenue", role="output"),
+            mapped("P&L", 3, "COGS", "pnl.cogs", role="calculation"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "10"),
+            cell("BS", "C2", "10"),
+            cell("BS", "D2", "10"),
+            cell("BS", "B3", "100"),
+            cell("BS", "C3", "250"),
+            cell("BS", "D3", "250"),
+            cell("P&L", "B2", "36500"),
+            cell("P&L", "C2", "36500"),
+            cell("P&L", "D2", "36500"),
+            cell("P&L", "B3", "3650"),
+            cell("P&L", "C3", "3650"),
+            cell("P&L", "D3", "3650"),
+        ],
+    )
+    row = _control(doc, "F05")
+    assert row.status == "flagged"
+    assert row.metrics.get("dio") == 25.0
+    assert "BS!C3" in row.cell_refs or "BS!D3" in row.cell_refs
+
+
 def test_f05_without_cogs_skips_dio_dpo() -> None:
     layout = _stack(
         simple_layout(
@@ -204,6 +249,7 @@ def test_f05_without_cogs_skips_dio_dpo() -> None:
     assert row.status == "clear"
     assert row.metrics.get("dio") is None
     assert row.metrics.get("dpo") is None
+    assert "COGS" in row.evidence or "cogs" in row.evidence.casefold()
 
 
 def test_f09_year_axis_is_insufficient() -> None:

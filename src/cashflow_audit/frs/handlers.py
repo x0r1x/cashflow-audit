@@ -525,28 +525,15 @@ def handle_f05(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     hist_dio, fcst_dio = _days_series(ctx, "bs.inventory", "pnl.cogs")
     metrics: dict = {}
     refs: list[str] = []
-    if fcst_dso:
-        metrics["dso"] = fcst_dso[-1][1]
-        if hist_dso is not None:
-            for _key, days, item_refs in fcst_dso:
-                if days - hist_dso >= DAYS_LIFT:
-                    metrics["dso"] = days
-                    refs.extend(item_refs)
-                    break
+    evidence = ""
+    _record_days_lift(hist_dso, fcst_dso, metrics, "dso", refs)
     if totals.get("pnl.cogs") is None:
         metrics["dio"] = None
         metrics["dpo"] = None
+        evidence = "DIO/DPO: недостаточно данных без COGS"
     else:
-        if fcst_dio:
-            metrics["dio"] = fcst_dio[-1][1]
-        if fcst_dpo:
-            metrics["dpo"] = fcst_dpo[-1][1]
-            if hist_dpo is not None:
-                for _key, days, item_refs in fcst_dpo:
-                    if days - hist_dpo >= DAYS_LIFT:
-                        metrics["dpo"] = days
-                        refs.extend(item_refs)
-                        break
+        _record_days_lift(hist_dio, fcst_dio, metrics, "dio", refs)
+        _record_days_lift(hist_dpo, fcst_dpo, metrics, "dpo", refs)
     prev_ar: float | None = None
     prev_rev: float | None = None
     for _key, _cols in year_slots(ctx, ar, rev):
@@ -565,7 +552,15 @@ def handle_f05(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
             prev_ar = a
         if r is not None:
             prev_rev = r
-    return _finish(spec_id, name, _uniq(refs), metrics, "cash_conversion", "medium")
+    return _finish(
+        spec_id,
+        name,
+        _uniq(refs),
+        metrics,
+        "cash_conversion",
+        "medium",
+        evidence=evidence,
+    )
 
 
 def handle_f09(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, FrsIssue | None]:
@@ -743,6 +738,25 @@ def handle_f14(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
     )
 
 
+def _record_days_lift(
+    hist: float | None,
+    fcst: list[tuple[str, float, list[str]]],
+    metrics: dict,
+    name: str,
+    refs: list[str],
+) -> None:
+    if not fcst:
+        return
+    metrics[name] = fcst[-1][1]
+    if hist is None:
+        return
+    for _key, days, item_refs in fcst:
+        if days - hist >= DAYS_LIFT:
+            metrics[name] = days
+            refs.extend(item_refs)
+            break
+
+
 def _days_series(
     ctx: FrsCtx, stock_id: str, flow_id: str
 ) -> tuple[float | None, list[tuple[str, float, list[str]]]]:
@@ -879,6 +893,7 @@ def _finish(
     *,
     confidence: str | None = None,
     cause: str = "",
+    evidence: str = "",
 ) -> tuple[ControlResult, FrsIssue | None]:
     if not refs:
         return (
@@ -888,6 +903,7 @@ def _finish(
                 status="clear",
                 confidence=confidence,  # type: ignore[arg-type]
                 metrics=metrics,
+                evidence=evidence,
             ),
             None,
         )
@@ -909,6 +925,7 @@ def _finish(
             cell_refs=refs,
             metrics=metrics,
             issue_id=issue.id,
+            evidence=evidence,
         ),
         issue,
     )

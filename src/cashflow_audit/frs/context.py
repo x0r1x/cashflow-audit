@@ -37,6 +37,15 @@ def year_slots(ctx: FrsCtx, *rows: MappedRow) -> list[tuple[str, list[int]]]:
     return [(year, cols) for year, cols in sorted(by_year.items())]
 
 
+def year_from_months(ctx: FrsCtx, *rows: MappedRow) -> bool:
+    if ctx.layout is None or not rows:
+        return False
+    aligned = list(_aligned(ctx, *rows))  # type: ignore[arg-type]
+    if not aligned:
+        return False
+    return all(_MONTH_KEY.fullmatch(key) for key, _cols in aligned)
+
+
 def month_slots(ctx: FrsCtx, *rows: MappedRow) -> list[tuple[str, list[int]]]:
     if ctx.layout is None:
         return []
