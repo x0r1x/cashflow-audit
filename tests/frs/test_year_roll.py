@@ -68,8 +68,12 @@ def test_f06_uses_last_month_stock_not_sum() -> None:
             cell("P&L", "E2", "10"),
         ],
     )
-    assert _control(doc, "F06").status == "clear"
-    assert _control(doc, "F06").confidence == "medium"
+    row = _control(doc, "F06")
+    assert row.status == "clear"
+    assert row.confidence == "medium"
+    assert row.metrics.get("ratio") == 120 / 50
+    assert row.metrics.get("prev_ratio") == 100 / 50
+    assert row.metrics.get("period_key") == "2025"
 
 
 def test_f04_accruals_are_ni_minus_cfo() -> None:

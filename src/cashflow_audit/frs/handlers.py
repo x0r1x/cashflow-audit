@@ -333,7 +333,11 @@ def handle_f06(ctx: FrsCtx, spec_id: str, name: str) -> tuple[ControlResult, Frs
                 "medium",
                 confidence="medium",
             )
-    return _finish(spec_id, name, [], {}, "leverage", "medium", confidence="medium")
+    key, ratio, _refs = ratios[-1]
+    metrics: dict = {"ratio": ratio, "period_key": key}
+    if len(ratios) > 1:
+        metrics["prev_ratio"] = ratios[-2][1]
+    return _finish(spec_id, name, [], metrics, "leverage", "medium", confidence="medium")
 
 
 def _coverage_extrema(

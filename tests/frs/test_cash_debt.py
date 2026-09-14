@@ -280,7 +280,11 @@ def test_f06_debt_up_ratio_down_is_clear() -> None:
             cell("P&L", "D2", "160"),
         ],
     )
-    assert _control(doc, "F06").status == "clear"
+    row = _control(doc, "F06")
+    assert row.status == "clear"
+    assert row.metrics.get("ratio") == 216 / 160
+    assert row.metrics.get("prev_ratio") == 216 / 151
+    assert row.metrics.get("period_key") == "2025E"
 
 
 def test_f06_uses_net_debt_when_cash_mapped() -> None:
