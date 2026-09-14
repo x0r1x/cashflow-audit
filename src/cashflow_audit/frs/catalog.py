@@ -17,7 +17,7 @@ CATALOG: tuple[ControlSpec, ...] = (
         "F01",
         "Динамика выручки факт→прогноз",
         frozenset({"pnl.revenue"}),
-        nice=frozenset({"pnl.volume", "pnl.price"}),
+        nice=frozenset({"pnl.volume", "pnl.price", "fx.rate"}),
     ),
     ControlSpec("F02", "EBITDA и маржа", frozenset({"pnl.ebitda", "pnl.revenue"})),
     ControlSpec("F03", "Убытки / отр. EBITDA", frozenset({"pnl.ebitda"})),
