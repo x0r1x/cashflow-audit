@@ -41,7 +41,7 @@ cashflow-audit audit ./model.xlsx -o ./report.json
 | `/v1/audits/{id}/integrity` | `integrity.json` | карточки техники и identity |
 | `/v1/audits/{id}/report` | `report.json` | FRS F01–F14, issues, вердикт, conclusions, индекс questions |
 
-Не отдаём: parquet, `cached_value`, формулы, `source.xlsx`, `candidates.json`, `frs.json`, `lineage.json`. Нет `/findings`.
+Не отдаём: parquet, `cached_value`, формулы, `source.xlsx`, `candidates.json`, `frs.json`, `lineage.json`. Нет `/findings` и нет `/risk-screen` (FRS = `/report`).
 
 Клиент: `POST` файл → poll `GET /v1/audits/{id}` пока `running`/`queued` → при терминале `GET .../report` (итог) и при необходимости `.../integrity`. Layout/mapping доступны, как только файл появился.
 
@@ -348,7 +348,7 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 
 `summary.headline` — одна фраза: сначала trust-error с id integrity (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не вердикт «модель верна». `conclusions[]` собирает код: `finding_ids` — `f_*` из integrity **или** `B-F*` из `issues`; `cell_refs` ⊆ refs этих карточек/issues ⊆ IR. LLM текст выводов и вердикт не пишет; ChatPort может переписать только cause/impact flagged-issue (текст, не числа, не статус F-строки). Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 
-`404` если аудита не было. `403` если `X-Actor-Id` не владелец (`owner.json`). Отдельного `/findings` нет. `sha256` в отчёте — хеш **содержимого** файла, не `audit_id`.
+`404` если аудита не было. `403` если `X-Actor-Id` не владелец (`owner.json`). Отдельного `/findings` или `/risk-screen` нет. `sha256` в отчёте — хеш **содержимого** файла, не `audit_id`.
 
 ---
 

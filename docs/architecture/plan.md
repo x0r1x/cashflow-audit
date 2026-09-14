@@ -176,7 +176,7 @@ CLI ─────────────────────────�
 
 `failed` > `needs_input` (questions непусты) > `degraded` (LLM не ответил при eligible-находках, questions пусто) > `succeeded`
 
-Live: `queued` | `running`. Нет `/findings`. `/report` = итог FRS, не свалка предыдущих шагов. Layout/mapping можно отдать, как только файл есть (даже при `running`). Integrity и report — после explain.
+Live: `queued` | `running`. Нет `/findings` и нет `/risk-screen`: FRS **и есть** `/report`. Один HTTP-маршрут контента = один шаг эталона (layout / mapping / integrity / report). `/report` = итог FRS, не свалка предыдущих шагов. Layout/mapping можно отдать, как только файл есть (даже при `running`). Integrity и report — после explain. Пайплайн: check → frs → lineage → explain (не lineage до frs).
 
 ---
 
@@ -418,7 +418,16 @@ class ChatPort(Protocol):
 
 ## 10. Выход
 
-Канон HTTP: тонкий `report.json` (FRS) + `integrity.json` + `layout.json` + `mapping.json`. Схема: [`api.md`](api.md). Нет `/findings`.
+Канон HTTP: тонкий `report.json` (FRS) + `integrity.json` + `layout.json` + `mapping.json`. Схема: [`api.md`](api.md). Нет `/findings`, нет `/risk-screen`.
+
+| GET | Шаг | Файл | Не класть в тело |
+|---|---|---|---|
+| `/layout` | карта периодов | `layout.json` | ячейки, parquet |
+| `/mapping` | состав статей | `mapping.json` | cached_value |
+| `/integrity` | Note01+Note02 | `integrity.json` | FRS-матрица, issues `B-F*` |
+| `/report` | Note04 / FRS | `report.json` | полный список excel_error / identity; `mapping.rows`; `layout.blocks` |
+
+`GET /v1/audits/{id}` даёт только ссылки в `content` на уже лежащие файлы. Conclusions цитируют `f_*` и/или `B-F*`, не копируют карточки. `ready_for_credit` ∈ {false, null}. FCF: mapped `cf.fcf` или derived `CFO+CAPEX`.
 
 ---
 
@@ -488,6 +497,8 @@ src/cashflow_audit/
 ## 14. Вне этапа 1
 
 Контейнеры LLM/embed (кроме клиента); облако как must; Postgres/SQLite; **общий** Redis вне пода (нужен для второго реплики API); UI; recalc; VBA; правка xlsx; изобретать DSCR/LLCR без mapped-строки; PDF; JWT вместо `X-Actor-Id`.
+
+FRS v1 не расширяем: пользовательские ковенанты / HITL-пороги (F14 = `insufficient`); LLCR/PLCR и FCF из полного CFI; DCF/NPV/WACC; точка безубыточности; три сценария; 13-week; концентрация клиентов; отдельный `GET /findings` или `/risk-screen`; живая книга Selectel в git/тестах. Косвенный мост `NI+DA±ΔNWC=CFO` остаётся **check** (I9), не F-строка и не `/report`. План-факт на одном `period_key` с разными role — желателен для F01, не блокер матрицы.
 
 Готово: повторный POST того же файла **тем же** актёром не создаёт job и не зовёт LLM; несколько актёров крутятся параллельно в одном поде; отчёт с `cell_refs` из IR.
 

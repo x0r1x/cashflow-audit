@@ -22,7 +22,7 @@
 - GPU/веса в репозитории; LLM/embeddings внутри пода
 - второй под API / общий Redis вне sidecar (loopback)
 - UI, JWT, PDF, recalc Excel, исполнение VBA/XLM
-- правка `xlsx`, эндпоинт `/findings` (есть `/integrity` и `/report`, не live-полл), флаг `force`
+- правка `xlsx`, эндпоинты `/findings` и `/risk-screen` (есть `/layout`, `/mapping`, `/integrity` и `/report` = FRS, не live-полл), флаг `force`
 - `resume_from` у HITL (worker всегда `Pipeline.run` с parse)
 - изобретать DSCR/LLCR/PLCR без mapped-строки; глобальный `cf:lock:pipeline`
 - параллелить стадии **одного** аудита (`parse` ∥ `compile` запрещены)
@@ -236,7 +236,7 @@ uv run ruff check src tests
 | lineage | reverse BFS до output-concept; метрики карточки только отсюда; truncated range не притворяется полнотой |
 | explain | LLM не меняет detector/refs/metrics/impact; `cited_refs` ⊄ вход → шаблон; drop без ref ∈ IR; freeze не выше warning; questions union+дедуп |
 | pipeline | skip-таблица; HITL не трогает `owner.json` и IR; повторный run не зовёт LLM; `PortError` → не exception наружу; timeout отпускает слот |
-| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report/integrity/layout/mapping 409 пока нет файла; нет `/findings`; статусный приоритет; probe 401 и model_missing → degraded; ping CLI без сети |
+| api | `missing_actor` 400; чужой id 403; POST идемпотентен; `/healthz` без Redis; `/readyz` 503 если Redis down; report/integrity/layout/mapping 409 пока нет файла; нет `/findings` и `/risk-screen`; статусный приоритет; probe 401 и model_missing → degraded; ping CLI без сети |
 
 Инварианты, которые ловить в нескольких слоях:
 
@@ -265,7 +265,7 @@ Private pack **вне git**. Подключать после заморозки 
 
 - Коммит = одна стадия или одна фича (порты, skip, HTTP).
 - В репозитории: код, синтетические фикстуры, `taxonomy.yaml`, `uv.lock`.
-- Не в git: `data/audits/`, `data/glossary/*` с боевыми акторами, eval pack, `.env`, клиентские xlsx.
+- Не в git: `data/audits/`, `data/glossary/*` с боевыми акторами, eval pack, `.env`, клиентские xlsx (в т.ч. Selectel).
 - Не коммитить «чуть-чуть» сырого значения в golden.
 
 ---
@@ -280,9 +280,10 @@ Private pack **вне git**. Подключать после заморозки 
 - «HITL передаст resume_from=mapping»
 - «в промпт кусок листа с числами, иначе модель не поймёт»
 - «чекер импортнет openai, это же один вызов»
-- «тест на живой книге из Downloads»
 - «порог 0.85 подкручу по eval»
 - «изобрету DSCR/LLCR без строки в mapping, в требованиях же есть»
+- «добавлю /findings или /risk-screen рядом с /report»
+- «тест на живой книге Selectel / Downloads»
 - «второй воркер-процесс с общим Redis, как в проде»
 
 Это нарушение плана, не ускорение.
