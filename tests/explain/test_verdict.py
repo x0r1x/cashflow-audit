@@ -60,6 +60,23 @@ def test_liquidity_includes_f08_runway_and_f09() -> None:
     assert "2026" in text or "42" in text
 
 
+def test_liquidity_says_cash_does_not_run_out() -> None:
+    frs = FrsDocument(
+        controls=[
+            _control(
+                "F08",
+                "clear",
+                metrics={"min_cash": 60.0, "period_key": "2025-03"},
+                evidence="не иссякает",
+            ),
+            _control("F09", "not_applicable"),
+        ]
+    )
+    text = build_verdict(frs, []).liquidity
+    assert "не иссякает" in text
+    assert "runway" not in text.casefold()
+
+
 def test_positives_from_clear_controls_with_substance() -> None:
     frs = FrsDocument(
         controls=[
