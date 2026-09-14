@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from cashflow_audit.explain.models import Finding, Positive, Verdict
-from cashflow_audit.frs.models import ControlResult, FrsDocument
+from cashflow_audit.explain.models import Finding, Positive, RiskScreenRow, Verdict
+from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
 
 _PRIO = {"high": 0, "medium": 1, "low": 2}
 
@@ -52,39 +52,68 @@ _SUBSTANCE = {
 }
 
 
-def build_verdict(frs: FrsDocument, integrity: list[Finding]) -> Verdict:
+def build_verdict(
+    frs: FrsDocument,
+    integrity: list[Finding],
+    *,
+    risk_screen: list[RiskScreenRow] | None = None,
+    issues: list[FrsIssue] | None = None,
+) -> Verdict:
+    rows = risk_screen or list(frs.controls)
+    issue_rows = issues or frs.issues
     ident = [
         item
         for item in integrity
         if item.detector.startswith("identity.") and item.severity == "error"
     ]
     excel = any(item.detector == "excel_error" for item in integrity)
-    high = any(issue.priority == "high" for issue in frs.issues)
+    high = any(issue.priority == "high" for issue in issue_rows)
     ready: bool | None = False if high or ident or excel else None
-    f04 = next((row for row in frs.controls if row.id == "F04"), None)
-    f08 = next((row for row in frs.controls if row.id == "F08"), None)
-    f09 = next((row for row in frs.controls if row.id == "F09"), None)
+    f04 = next((row for row in rows if row.id == "F04"), None)
+    f08 = next((row for row in rows if row.id == "F08"), None)
+    f09 = next((row for row in rows if row.id == "F09"), None)
     if ident or excel:
         integrity_text = "Расчётная целостность нарушена."
     else:
         integrity_text = "По включённым равенствам явных разрывов нет."
     if f04 is not None and f04.status == "flagged":
         trends = "Прибыль не равна деньгам (NI vs CFO vs FCF)."
-    elif any(row.status == "flagged" for row in frs.controls):
-        trends = "Есть сигналы по финансовым трендам."
+    elif flagged := [row for row in rows if row.status == "flagged"]:
+        trends = "Есть сигналы: " + "; ".join(
+            f"{row.id} {row.name}" for row in flagged
+        ) + "."
     else:
         trends = (
             "По включённым проверкам F01–F14 существенных трендовых разрывов не видно."
         )
-    ranked = sorted(frs.issues, key=lambda issue: _PRIO.get(issue.priority, 9))
-    risks = "; ".join(f"{issue.control_id} ({issue.priority})" for issue in ranked)
+    ranked = sorted(issue_rows, key=lambda issue: _PRIO.get(issue.priority, 9))
+    names = {row.id: row.name for row in rows}
+    risks = "; ".join(
+        f"{issue.control_id} {names.get(issue.control_id, '')} ({issue.priority})".strip()
+        for issue in ranked
+    )
     if not risks:
         risks = "Ключевых flagged-рисков нет."
+    incomplete = [
+        row for row in rows if row.status in {"insufficient", "not_applicable"}
+    ]
+    if incomplete:
+        risks += " Не покрыты полностью: " + ", ".join(
+            f"{row.id} ({row.status})" for row in incomplete
+        ) + "."
     liquidity = _liquidity_text(f08, f09)
     if ready is False:
+        blockers = [issue.id for issue in ranked if issue.priority == "high"]
+        blocker_text = ", ".join(blockers) or "вопросы целостности"
         recommendation = (
-            "Модель не готова к кредитному процессу, пока не закрыты "
-            "перечисленные B-F* и вопросы целостности."
+            "Модель не готова к кредитному процессу: сначала проверить "
+            f"{blocker_text} и ошибки расчётной целостности."
+        )
+    elif incomplete:
+        recommendation = (
+            "Сначала дополнить mapping/исходные данные для "
+            + ", ".join(row.id for row in incomplete)
+            + "; по остальным включённым проверкам существенных рисков не видно."
         )
     else:
         recommendation = (
@@ -101,15 +130,20 @@ def build_verdict(frs: FrsDocument, integrity: list[Finding]) -> Verdict:
     )
 
 
-def build_positives(frs: FrsDocument) -> list[Positive]:
+def build_positives(
+    frs: FrsDocument,
+    risk_screen: list[RiskScreenRow] | None = None,
+) -> list[Positive]:
+    explanations = {row.id: row.explanation for row in risk_screen or []}
     found: list[Positive] = []
     for row in frs.controls:
         if row.status != "clear":
             continue
         builder = _SUBSTANCE.get(row.id)
-        if builder is None:
-            continue
-        text = builder(row)
+        text = builder(row) if builder is not None else None
+        explanation = explanations.get(row.id)
+        if text is None and row.metrics and explanation is not None:
+            text = f"{row.name}: {explanation.key_fact.rstrip('.')}"
         if not text:
             continue
         found.append(Positive(control_id=row.id, text=text))

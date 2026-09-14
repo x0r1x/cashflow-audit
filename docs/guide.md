@@ -238,8 +238,8 @@ Docker: в образе нет весов моделей. Redis — соседн
 
 1. **`status`** — можно ли доверять прогону (`failed` / `needs_input` / `degraded` / `succeeded`).
 2. **`summary.headline`** — одна фраза: trust-error с id из `/integrity` (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не приговор «модель верна».
-3. **`risk_screen.matrix`** — закрытая матрица F01–F14. Рядом внутри `risk_screen` лежат `issues`, `positives` и `verdict`; `verdict.ready_for_credit` бывает только `false` или `null`.
-4. **`risk_screen.issues` / `risk_screen.positives`** — flagged FRS (`B-F*`) и шаблонные плюсы по clear-контролям с числами (маржа, ND/EBITDA, ICR, min cash). `insufficient` в positives не попадает.
+3. **`risk_screen.matrix`** — закрытая матрица F01–F14. В каждой строке откройте `explanation`: `check` говорит, что проверялось; `status_reason` — почему получен этот статус; `key_fact` — ключевой рассчитанный факт; `impact` — финансовый смысл; `next_step` — что проверить аналитику; `cited_refs` — конкретные адреса Excel, на которых основан flagged-вывод. Эти ссылки всегда входят в `cell_refs` и не выдумываются; если источник не сохранён, список пуст. Для `not_applicable` указано, какой обязательный concept не найден, а `insufficient` не выдаётся за положительный результат. `risk_screen.verdict.ready_for_credit` бывает только `false` или `null`.
+4. **`risk_screen.issues` / `risk_screen.positives`** — flagged FRS (`B-F*`) и шаблонные плюсы по clear-контролям, для которых рассчитан содержательный факт. Cause/impact у issue заполнены шаблоном даже без LLM. `insufficient` и `not_applicable` в positives не попадают.
 5. **`conclusions`** — сводка: сначала недостоверные метрики (`trust`), затем склейка «техника + риск» (`combo`), затем сигналы динамики. `finding_ids` цитируют `f_*` из `/integrity` и/или `B-F*` из `risk_screen.issues`. Карточки Excel/identity сюда целиком не копируются.
 6. **`questions`** — без ответа маппинг (и равенства, которые от него зависят) неполны. Индекс для HITL.
 7. **`llm_used` / `embeddings_used`** — вызывалась ли сеть. `false` при шаблонном тексте — норма. Выводы и вердикт пишет код; LLM может только перефразировать cause/impact flagged-issue.
@@ -299,7 +299,7 @@ Docker: в образе нет весов моделей. Redis — соседн
 Строка должна быть распознана как `pnl.ebitda` (и `pnl.da` / `pnl.ebit` для I7). Если лейбл странный — будет вопрос, а не равенство.
 
 **Почему статус `degraded`, хотя находки есть?**  
-Языковая модель была нужна для текста flagged FRS-issue и не ответила (нет слота GPU, сеть, бюджет). Матрица и issues кода на месте, формулировки шаблонные.
+Языковая модель могла улучшить текст flagged FRS-issue, но не ответила (нет слота GPU, сеть, бюджет). Матрица, структурированные объяснения и полный шаблон cause/impact уже на месте; числа, статусы и выводы от LLM не зависят.
 
 **Почему `succeeded`, хотя LLM настроен, а находок нет?**  
 Подписывать было нечего — это успех, не деградация.

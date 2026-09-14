@@ -189,7 +189,8 @@ def test_cited_refs_outside_input_falls_back_to_template() -> None:
         frs=_frs(_issue()),
     )
     assert report.issues[0].cause != "LLM-ONLY-CAUSE"
-    assert report.issues[0].cause == "ops"
+    assert "операц" in report.issues[0].cause.casefold()
+    assert report.issues[0].impact
 
 
 def test_llm_invented_number_falls_back_to_template() -> None:
@@ -210,8 +211,28 @@ def test_llm_invented_number_falls_back_to_template() -> None:
         slots=GrantSlots(),
         frs=_frs(_issue()),
     )
-    assert report.issues[0].cause == "ops"
-    assert report.issues[0].impact == ""
+    assert "операц" in report.issues[0].cause.casefold()
+    assert report.issues[0].impact
+    assert "9999" not in report.issues[0].cause
+
+
+def test_flagged_issue_has_complete_template_without_chat() -> None:
+    report = compose_report(
+        candidates=[_cand(detector="frs.F04")],
+        lineage=LineageDocument(items=[_lin(detector="frs.F04")]),
+        mapping=MappingDocument(),
+        check=CheckDocument(),
+        ir_refs={"P&L!B2", "P&L!C3"},
+        chat=None,
+        slots=GrantSlots(),
+        frs=_frs(_issue()),
+    )
+
+    assert report.issues[0].cause
+    assert report.issues[0].impact
+    assert report.risk_screen[0].explanation.status_reason
+    assert report.llm_used is False
+    assert report.status == "succeeded"
 
 
 def test_drop_finding_without_ir_ref() -> None:
@@ -321,7 +342,8 @@ def test_denied_slot_does_not_call_chat_and_uses_template(caplog) -> None:
         frs=_frs(_issue()),
     )
     assert chat.calls == 0
-    assert report.issues[0].cause == "ops"
+    assert "операц" in report.issues[0].cause.casefold()
+    assert report.issues[0].impact
     assert report.status == "degraded"
     assert report.llm_used is False
     assert any(
@@ -348,7 +370,8 @@ def test_chat_port_error_logs_port_fallback(caplog) -> None:
         slots=GrantSlots(),
         frs=_frs(_issue()),
     )
-    assert report.issues[0].cause == "ops"
+    assert "операц" in report.issues[0].cause.casefold()
+    assert report.issues[0].impact
     assert report.status == "degraded"
     assert any(
         r.__dict__.get("event") == "port_fallback"
@@ -390,7 +413,8 @@ def test_explain_stops_llm_when_budget_exhausted() -> None:
     assert report.findings == []
     assert len(report.issues) == 2
     assert report.issues[0].cause == "LLM cause"
-    assert report.issues[1].cause == "cash_plug"
+    assert "cash plug" in report.issues[1].cause.casefold()
+    assert report.issues[1].impact
 
 
 def test_headline_cites_integrity_error_over_high_issue() -> None:

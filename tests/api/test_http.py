@@ -594,20 +594,41 @@ def test_report_is_thin_integrity_stays_on_its_route(
                     "headline": "Баланс не сходится (f_001)",
                 },
                 "findings": [],
-                "issues": [
-                    {
-                        "id": "B-F04",
-                        "control_id": "F04",
-                        "class_name": "cash_conversion",
-                        "priority": "medium",
-                        "metrics": {},
-                        "cell_refs": ["CF!E12"],
-                        "cause": "ops",
-                        "impact": "",
-                    }
-                ],
+                "risk_screen": {
+                    "matrix": [
+                        {
+                            "id": "F04",
+                            "name": "CFO/FCF и разрыв прибыль→деньги",
+                            "status": "flagged",
+                            "confidence": "medium",
+                            "metrics": {"ni": 100, "cfo": 40, "fcf": -20},
+                            "cell_refs": ["CF!E12"],
+                            "issue_id": "B-F04",
+                            "explanation": {
+                                "check": "Сопоставляет NI, CFO и FCF.",
+                                "status_reason": "Порог нарушен (B-F04).",
+                                "key_fact": "NI 100; CFO 40; FCF −20.",
+                                "impact": "Есть риск ликвидности.",
+                                "next_step": "Проверить мост денежных потоков.",
+                                "cited_refs": ["CF!E12"],
+                            },
+                        }
+                    ],
+                    "issues": [
+                        {
+                            "id": "B-F04",
+                            "control_id": "F04",
+                            "class_name": "cash_conversion",
+                            "priority": "medium",
+                            "metrics": {},
+                            "cell_refs": ["CF!E12"],
+                            "cause": "ops",
+                            "impact": "",
+                        }
+                    ],
+                    "verdict": {"ready_for_credit": False},
+                },
                 "questions": [],
-                "verdict": {"ready_for_credit": False},
             },
         )
         write_json(
@@ -636,7 +657,17 @@ def test_report_is_thin_integrity_stays_on_its_route(
         assert report.status_code == 200
         body = report.json()
         assert body["findings"] == []
-        assert body["issues"][0]["id"] == "B-F04"
+        assert body["risk_screen"]["issues"][0]["id"] == "B-F04"
+        row = body["risk_screen"]["matrix"][0]
+        explanation = row["explanation"]
+        assert all(
+            explanation[key]
+            for key in ("check", "status_reason", "key_fact", "impact", "next_step")
+        )
+        assert explanation["cited_refs"] == ["CF!E12"]
+        assert set(explanation["cited_refs"]) <= set(row["cell_refs"])
+        assert "issues" not in body
+        assert "verdict" not in body
         assert "excel_error" not in str(body.get("findings"))
         assert integrity.status_code == 200
         assert integrity.json()["findings"][0]["detector"] == "excel_error"

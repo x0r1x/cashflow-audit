@@ -244,7 +244,9 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 
 `200` у `/report` — тонкий итог FRS: `risk_screen` содержит `matrix`, `issues`, `positives`, `verdict`; рядом лежат conclusions и индекс questions. Карточки Excel/identity — `GET .../integrity` (`f_*`), не дублируются в `findings`. FRS-проза — в `risk_screen.issues` (`B-F04`). `ready_for_credit` только в `risk_screen.verdict`: `false` или `null`, никогда `true`.
 
-`200` — канон выхода приложения:
+`200` — канон выхода приложения. Для читаемости `explanation` полностью
+раскрыт у F04; в реальном новом отчёте такой объект есть у каждой строки
+F01–F14:
 
 ```json
 {
@@ -266,7 +268,24 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
     {"id": "F01", "name": "Динамика выручки факт→прогноз", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
     {"id": "F02", "name": "EBITDA и маржа", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"margin": 0.18}, "cell_refs": [], "issue_id": null},
     {"id": "F03", "name": "Убытки / отр. EBITDA", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
-    {"id": "F04", "name": "CFO/FCF и разрыв прибыль→деньги", "status": "flagged", "confidence": "medium", "evidence": "", "metrics": {"ni": 100, "cfo": 40, "fcf": -20, "cause": "ops"}, "cell_refs": ["CF!E12"], "issue_id": "B-F04"},
+    {
+      "id": "F04",
+      "name": "CFO/FCF и разрыв прибыль→деньги",
+      "status": "flagged",
+      "confidence": "medium",
+      "evidence": "",
+      "metrics": {"ni": 100, "cfo": 40, "fcf": -20, "cause": "ops"},
+      "cell_refs": ["CF!E12"],
+      "issue_id": "B-F04",
+      "explanation": {
+        "check": "Сопоставляет чистую прибыль, CFO и FCF и ищет длительный разрыв прибыль→деньги.",
+        "status_reason": "Порог контроля нарушен (B-F04); связанные ячейки указаны в cell_refs.",
+        "key_fact": "NI 100; CFO 40; FCF −20.",
+        "impact": "Слабая конверсия прибыли в деньги повышает риск дефицита ликвидности.",
+        "next_step": "Разобрать мост NI→CFO→FCF: операции, оборотный капитал, CAPEX и дивиденды.",
+        "cited_refs": ["CF!E12"]
+      }
+    },
     {"id": "F05", "name": "Оборотный капитал", "status": "insufficient", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
     {"id": "F06", "name": "Долговая нагрузка", "status": "clear", "confidence": "medium", "evidence": "", "metrics": {"ratio": 2.1, "prev_ratio": 3.0}, "cell_refs": [], "issue_id": null},
     {"id": "F07", "name": "ICR / DSCR", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"icr": 4.5}, "cell_refs": [], "issue_id": null},
@@ -294,12 +313,13 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
     {"control_id": "F02", "text": "Маржа EBITDA 0.18"},
     {"control_id": "F06", "text": "ND/EBITDA снизился с 3x до 2.1x"},
     {"control_id": "F07", "text": "ICR 4.5x"},
-    {"control_id": "F08", "text": "min cash 50 (2025-03)"}
+    {"control_id": "F08", "text": "min cash 50 (2025-03)"},
+    {"control_id": "F09", "text": "Концентрация погашений: доля 22%; год 2026"}
     ],
     "verdict": {
       "integrity": "Расчётная целостность нарушена.",
       "trends": "Прибыль не равна деньгам (NI vs CFO vs FCF).",
-      "risks": "F04 (medium)",
+      "risks": "F04 CFO/FCF и разрыв прибыль→деньги (medium). Не покрыты полностью: F05 (insufficient), F10 (insufficient), F12 (not_applicable), F13 (not_applicable), F14 (insufficient).",
       "liquidity": "F08 min cash 50 (clear); F09 концентрация погашений 22% в 2026",
       "recommendation": "Модель не готова к кредитному процессу, пока не закрыты перечисленные B-F* и вопросы целостности.",
       "ready_for_credit": false
@@ -323,10 +343,10 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
       "severity": "risk",
       "metrics": ["pnl.net_income", "cf.fcf"],
       "title": "Прибыль не равна деньгам",
-      "body": "По равенствам эта метрика в этом прогоне не опровергнута; наблюдается сигнал frs.F04 (CF!E12).",
+      "body": "NI 100; CFO 40; FCF −20. Слабая конверсия прибыли в деньги повышает риск дефицита ликвидности. Источники: CF!E12.",
       "finding_ids": ["B-F04"],
       "cell_refs": ["CF!E12"],
-      "recommendation": "Проверить указанные ячейки. Файл не изменён."
+      "recommendation": "Разобрать мост NI→CFO→FCF: операции, оборотный капитал, CAPEX и дивиденды."
     }
   ],
   "questions": [
@@ -347,6 +367,18 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 ```
 
 `findings` в тонком отчёте пустой: Excel/identity не копируются сюда (они в `/integrity` как `f_*`). Поля находки integrity = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR карточки в `/integrity` нет.
+
+Каждая новая строка `risk_screen` содержит `explanation` с обязательными
+смысловыми полями: `check`, `status_reason`, `key_fact`, `impact`, `next_step`
+и `cited_refs`.
+Они строятся кодом из статуса, mapping и уже рассчитанных `metrics`. Для
+`not_applicable` причина называет отсутствующие обязательные concept IDs, для
+`insufficient` — недостающий период или драйвер. Старые отчёты без
+`explanation` читаются с пустыми defaults, но новый прогон заполняет все пять
+текстовых полей для каждой строки F01–F14. `cited_refs` всегда является
+подмножеством `risk_screen[].cell_refs`: для flagged-вывода это конкретные
+адреса Excel, а при отсутствии сохранённого источника список пуст — ссылки не
+выдумываются.
 
 `summary.headline` — одна фраза: сначала trust-error с id integrity (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не вердикт «модель верна». `conclusions[]` собирает код: `finding_ids` — `f_*` из integrity **или** `B-F*` из `risk_screen.issues`; `cell_refs` ⊆ refs этих карточек/issues ⊆ IR. LLM текст выводов и вердикт не пишет; ChatPort может переписать только cause/impact flagged-issue (текст, не числа, не статус F-строки). Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 
