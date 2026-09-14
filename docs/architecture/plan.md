@@ -334,7 +334,7 @@ I3b: `opening RE + NI − dividends + mapped bs.re_adj = closing`. Нет кор
 
 I9: косвенный мост `CFO ≈ NI + D&A − ΔAR − ΔInv + ΔAP`. Нет NI/CFO или нет ни D&A, ни WC → Question. Отсутствующая статья WC/D&A = 0, не угадывание знака.
 
-I10: `opening + drawdown − repayment + mapped fx.debt = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. Нет `fx.debt` — курс/переоценку не выдумываем.
+I10: `opening + drawdown − repayment + mapped fx.debt = closing` по `bs.debt`. Нет долга или нет ни draw, ни repay → Question, не Finding. Нет `fx.debt` — курс/переоценку не выдумываем. Mapped долг на балансе и графике → EoP; нет второй строки — не выдумываем.
 
 I11: `interest ≈ rate × среднее(opening, closing) долга`. Ставка > 1 трактуется как проценты (12 → 0.12). `period_key=YYYY-MM` → делить годовой купон на 12. Нет ставки или долга → Question, не выдуманный купон.
 

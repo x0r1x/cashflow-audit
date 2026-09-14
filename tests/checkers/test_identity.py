@@ -984,6 +984,60 @@ def test_i10_without_flows_is_question_not_finding() -> None:
     assert any("I10" in (q.prompt or "") for q in result.questions)
 
 
+def test_i10_bs_vs_schedule_debt_mismatch_is_error() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="Debt")], sheet="BS")
+    sched = simple_layout([LayoutRow(row=2, label="Debt")], sheet="Debt")
+    layout = Layout(sheets=[*bs.sheets, *sched.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("Debt", 2, "Debt", "bs.debt", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "200"),
+                cell("BS", "C2", "200"),
+                cell("Debt", "B2", "200"),
+                cell("Debt", "C2", "150"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I10"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "BS!C2" in found[0].cell_refs
+    assert "Debt!C2" in found[0].cell_refs
+
+
+def test_i10_bs_vs_schedule_debt_match_is_silent() -> None:
+    bs = simple_layout([LayoutRow(row=2, label="Debt")], sheet="BS")
+    sched = simple_layout([LayoutRow(row=2, label="Debt")], sheet="Debt")
+    layout = Layout(sheets=[*bs.sheets, *sched.sheets])
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("Debt", 2, "Debt", "bs.debt", role="output"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("BS", "B2", "200"),
+                cell("BS", "C2", "200"),
+                cell("Debt", "B2", "200"),
+                cell("Debt", "C2", "200"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I10"]
+
+
 def test_i10_mapped_fx_explains_gap_is_silent() -> None:
     layout = simple_layout(
         [
