@@ -50,10 +50,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         candidates.extend(
             _rollforward(ctx, "identity.I3a", group["bs.cash"], flows, add=True)
         )
-    cash_sheets = _cash_by_sheet(ctx)
+    cash_sheets = _concept_by_sheet(ctx, "bs.cash")
     for index, left in enumerate(cash_sheets):
         for right in cash_sheets[index + 1 :]:
-            candidates.extend(_i3a_eop(ctx, left, right))
+            candidates.extend(_eop_mismatch(ctx, "identity.I3a", left, right))
     qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I3B_CONCEPTS):
         div = group.get("cf.dividends") or book.get("cf.dividends")
@@ -151,6 +151,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         if draw is None and repay is None:
             continue
         candidates.extend(_i10(ctx, group["bs.debt"], draw, repay, fx))
+    debt_sheets = _concept_by_sheet(ctx, "bs.debt")
+    for index, left in enumerate(debt_sheets):
+        for right in debt_sheets[index + 1 :]:
+            candidates.extend(_eop_mismatch(ctx, "identity.I10", left, right))
     qn = _maybe_question(questions, qn, "I11", I11_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I11_CONCEPTS):
         candidates.extend(
@@ -323,10 +327,10 @@ def _minus(
     return found
 
 
-def _cash_by_sheet(ctx: CheckContext) -> list[MappedRow]:
+def _concept_by_sheet(ctx: CheckContext, concept_id: str) -> list[MappedRow]:
     chosen: dict[str, MappedRow] = {}
     for row in ctx.mapping.rows:
-        if row.concept_id != "bs.cash":
+        if row.concept_id != concept_id:
             continue
         prev = chosen.get(row.sheet)
         if prev is None or (row.article_role == "output" and prev.article_role != "output"):
@@ -334,7 +338,12 @@ def _cash_by_sheet(ctx: CheckContext) -> list[MappedRow]:
     return list(chosen.values())
 
 
-def _i3a_eop(ctx: CheckContext, left: MappedRow, right: MappedRow) -> list[Candidate]:
+def _eop_mismatch(
+    ctx: CheckContext,
+    detector: str,
+    left: MappedRow,
+    right: MappedRow,
+) -> list[Candidate]:
     found: list[Candidate] = []
     for key, cols in _aligned(ctx, left, right, roles=_IDENTITY_SNAPSHOT_ROLES):
         a = _value(ctx, left, cols[0])
@@ -346,7 +355,7 @@ def _i3a_eop(ctx: CheckContext, left: MappedRow, right: MappedRow) -> list[Candi
             continue
         found.append(
             Candidate(
-                detector="identity.I3a",
+                detector=detector,
                 cell_refs=[_cell_ref(left, cols[0]), _cell_ref(right, cols[1])],
                 payload={"col": cols[0], "period_key": key, "delta": a - b},
                 base_severity="error",
