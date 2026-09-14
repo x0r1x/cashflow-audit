@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from cashflow_audit.explain.models import Finding
+from cashflow_audit.explain.risk_screen import build_risk_screen
 from cashflow_audit.explain.verdict import build_positives, build_verdict
 from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
+from cashflow_audit.mapping.models import MappingDocument
 
 
 def _control(cid: str, status: str, **kwargs) -> ControlResult:
@@ -116,6 +118,49 @@ def test_no_positive_for_insufficient_and_empty_ok() -> None:
         FrsDocument(controls=[_control("F02", "insufficient"), _control("F08", "flagged")])
     )
     assert only_na == []
+
+
+def test_positives_include_other_clear_controls_with_measured_fact() -> None:
+    frs = FrsDocument(
+        controls=[
+            _control(
+                "F01",
+                "clear",
+                name="Динамика выручки",
+                metrics={"change": 0.08, "period_key": "2026"},
+            ),
+            _control(
+                "F09",
+                "clear",
+                name="Концентрация погашений",
+                metrics={"share": 0.22, "year": "2026"},
+            ),
+            _control("F03", "clear", name="Убытки"),
+        ]
+    )
+    screen = build_risk_screen(frs, MappingDocument())
+
+    positives = build_positives(frs, screen)
+
+    assert {item.control_id for item in positives} == {"F01", "F09"}
+    assert all(item.text for item in positives)
+
+
+def test_verdict_names_uncovered_controls_and_next_action() -> None:
+    frs = FrsDocument(
+        controls=[
+            _control("F10", "insufficient", name="Процентный / валютный"),
+            _control("F14", "not_applicable", name="Headroom"),
+        ]
+    )
+    screen = build_risk_screen(frs, MappingDocument())
+
+    verdict = build_verdict(frs, [], risk_screen=screen)
+
+    assert verdict.ready_for_credit is None
+    assert "F10" in verdict.risks
+    assert "F14" in verdict.risks
+    assert "mapping" in verdict.recommendation
 
 
 def test_identity_error_sets_ready_false() -> None:

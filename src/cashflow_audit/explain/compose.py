@@ -13,7 +13,9 @@ from cashflow_audit.explain.models import (
     Provenance,
     Report,
     ReportSummary,
+    RiskScreen,
 )
+from cashflow_audit.explain.risk_screen import build_risk_screen, enrich_issues
 from cashflow_audit.explain.template import impact_text, template_card
 from cashflow_audit.explain.verdict import build_positives, build_verdict
 from cashflow_audit.frs.models import FrsDocument, FrsIssue
@@ -50,7 +52,11 @@ def compose_report(
     frs: FrsDocument | None = None,
 ) -> Report:
     screen = frs or FrsDocument(controls=[], issues=[])
-    issues = [item.model_copy(deep=True) for item in screen.issues]
+    risk_screen = build_risk_screen(screen, mapping)
+    issues = enrich_issues(
+        [item.model_copy(deep=True) for item in screen.issues],
+        risk_screen,
+    )
     lin_by_index = {item.candidate_index: item for item in lineage.items}
     integrity_kept: list[tuple[int, Candidate, LineageItem]] = []
     frs_kept: list[tuple[int, Candidate, LineageItem]] = []
@@ -110,19 +116,27 @@ def compose_report(
         )
     _fill_related(integrity_findings, [item for _, _, item in integrity_kept])
 
+    screen_by_id = {row.id: row for row in risk_screen}
+    issue_by_id = {issue.id: issue for issue in issues}
     frs_findings: list[Finding] = []
     for _index, cand, item in frs_kept:
+        finding_id = _issue_id_for(cand, issues)
+        control_id = cand.detector.removeprefix("frs.")
+        row = screen_by_id.get(control_id)
+        issue = issue_by_id.get(finding_id)
         frs_findings.append(
             Finding(
-                id=_issue_id_for(cand, issues),
+                id=finding_id,
                 severity=_severity(cand),
                 detector=cand.detector,
                 cell_refs=list(cand.cell_refs),
-                title="",
-                evidence="",
+                title=row.name if row is not None else control_id,
+                evidence=row.explanation.key_fact if row is not None else "",
                 affected_metrics=list(item.affected_metrics),
-                impact=impact_text(item),
-                recommendation="",
+                impact=issue.impact if issue is not None else impact_text(item),
+                recommendation=(
+                    row.explanation.next_step if row is not None else ""
+                ),
                 tags=list(cand.tags),
             )
         )
@@ -166,10 +180,17 @@ def compose_report(
             llm_model=llm_model if llm_used else None,
             embedding_model=embedding_model if embeddings_used else None,
         ),
-        risk_screen=list(screen.controls),
-        issues=issues,
-        positives=build_positives(screen),
-        verdict=build_verdict(screen, integrity_findings),
+        risk_screen=RiskScreen(
+            matrix=risk_screen,
+            issues=issues,
+            positives=build_positives(screen, risk_screen),
+            verdict=build_verdict(
+                screen,
+                integrity_findings,
+                risk_screen=risk_screen,
+                issues=issues,
+            ),
+        ),
         integrity_findings=integrity_findings,
     )
 

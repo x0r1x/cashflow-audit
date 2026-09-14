@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from cashflow_audit.frs.models import ControlResult, FrsIssue
 from cashflow_audit.mapping.models import MappingQuestion
@@ -86,6 +86,32 @@ class Positive(BaseModel):
     text: str
 
 
+class ControlExplanation(BaseModel):
+    check: str = ""
+    status_reason: str = ""
+    key_fact: str = ""
+    impact: str = ""
+    next_step: str = ""
+    cited_refs: list[str] = Field(default_factory=list)
+
+
+class RiskScreenRow(ControlResult):
+    explanation: ControlExplanation = Field(default_factory=ControlExplanation)
+
+
+class RiskScreen(BaseModel):
+    matrix: list[RiskScreenRow] = Field(default_factory=list)
+    issues: list[FrsIssue] = Field(default_factory=list)
+    positives: list[Positive] = Field(default_factory=list)
+    verdict: Verdict = Field(default_factory=Verdict)
+
+    def __len__(self) -> int:
+        return len(self.matrix)
+
+    def __getitem__(self, index: int) -> RiskScreenRow:
+        return self.matrix[index]
+
+
 class Report(BaseModel):
     audit_id: str
     source_filename: str
@@ -98,11 +124,36 @@ class Report(BaseModel):
     conclusions: list[Conclusion] = Field(default_factory=list)
     questions: list[MappingQuestion] = Field(default_factory=list)
     provenance: Provenance = Field(default_factory=Provenance)
-    risk_screen: list[ControlResult] = Field(default_factory=list)
-    issues: list[FrsIssue] = Field(default_factory=list)
-    positives: list[Positive] = Field(default_factory=list)
-    verdict: Verdict = Field(default_factory=Verdict)
+    risk_screen: RiskScreen = Field(default_factory=RiskScreen)
     integrity_findings: list[Finding] = Field(default_factory=list, exclude=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _upgrade_legacy_risk_screen(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        screen = data.get("risk_screen")
+        if isinstance(screen, list):
+            data["risk_screen"] = {
+                "matrix": screen,
+                "issues": data.pop("issues", []),
+                "positives": data.pop("positives", []),
+                "verdict": data.pop("verdict", {}),
+            }
+        return data
+
+    @property
+    def issues(self) -> list[FrsIssue]:
+        return self.risk_screen.issues
+
+    @property
+    def positives(self) -> list[Positive]:
+        return self.risk_screen.positives
+
+    @property
+    def verdict(self) -> Verdict:
+        return self.risk_screen.verdict
 
 
 class JobMeta(BaseModel):

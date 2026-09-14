@@ -262,15 +262,16 @@ def _grouped(
             )
             rec = _FILE_UNCHANGED
         else:
+            evidence = group[0].finding.evidence or "порог контроля нарушен"
+            impact = group[0].finding.impact or "требуется оценка финансового влияния"
             body = (
-                f"По равенствам эта метрика в этом прогоне не опровергнута; "
-                f"наблюдается сигнал {detector} ({refs})."
+                f"{evidence} {impact} Источники: {refs}."
             )
-            rec = _FILE_UNCHANGED
+            rec = group[0].finding.recommendation or _FILE_UNCHANGED
         item = _emit(
             kind=kind,
             rows=group,
-            title=card_title(detector),
+            title=group[0].finding.title or card_title(detector),
             body=body,
             recommendation=rec,
         )

@@ -107,8 +107,10 @@ def test_writes_report_and_meta_atomically(dest: Path) -> None:
     assert report.integrity_findings
     assert dumped["findings"] == []
     assert "integrity_findings" not in dumped
-    assert dumped["verdict"]["ready_for_credit"] is False
-    assert len(dumped["risk_screen"]) == 14
+    assert dumped["risk_screen"]["verdict"]["ready_for_credit"] is False
+    assert len(dumped["risk_screen"]["matrix"]) == 14
+    assert "verdict" not in dumped
+    assert "issues" not in dumped
     assert integrity["findings"][0]["detector"] == "excel_error"
     assert report.sha256 == "deadbeef"
     assert report.source_filename == "m.xlsx"

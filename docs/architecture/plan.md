@@ -420,6 +420,15 @@ ChatPort под `try_slot("llm")`. Шаблон integrity всегда полн�
 - `integrity.json` — карточки техники и identity (Note01+02), id `f_*`
 - тонкий `report.json` — `risk_screen {matrix, issues, positives, verdict}`, conclusions, индекс questions. `findings` всегда пустой и сохранён только для совместимости; полного списка excel_error / unused_cell здесь нет
 
+Каждая строка `risk_screen.matrix` в отчёте дополняется кодовым `explanation`:
+`check`, `status_reason`, `key_fact`, `impact`, `next_step`, `cited_refs`. Это проекция
+готовых статуса, mapping и metrics на стадии explain, а не новая логика FRS:
+пороги и status не меняются. Для `not_applicable` называются отсутствующие
+обязательные concepts, для `insufficient` — причина нехватки данных. Шаблон
+cause/impact flagged issue всегда заполнен до необязательной переписи ChatPort.
+`cited_refs` копируются только из `ControlResult.cell_refs` и не могут содержать
+новые адреса.
+
 `conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. Combo не копирует тело карточки. `finding_ids` — `f_*` integrity **или** `B-F*` из `risk_screen.issues`. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline`: trust-error с id integrity > high F-issue (`B-F*`) > шаблон полноты; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null} только в `risk_screen.verdict`. ChatPort — только проза flagged issues (cause/impact текст, не числа); не вердикт и не статус F-строки.
 
 Drop находки без ref ∈ IR.

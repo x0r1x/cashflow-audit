@@ -3,6 +3,7 @@ from __future__ import annotations
 from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.explain.models import Report
+from cashflow_audit.frs.catalog import CATALOG
 from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
@@ -43,6 +44,7 @@ def _lin(index: int = 0, **kwargs) -> LineageItem:
 
 
 def _frs_from(candidates: list[Candidate], *, high: str | None = None) -> FrsDocument | None:
+    names = {spec.id: spec.name for spec in CATALOG}
     issues: list[FrsIssue] = []
     controls: list[ControlResult] = []
     for cand in candidates:
@@ -63,7 +65,7 @@ def _frs_from(candidates: list[Candidate], *, high: str | None = None) -> FrsDoc
         controls.append(
             ControlResult(
                 id=cid,
-                name=cid,
+                name=names[cid],
                 status="flagged",
                 cell_refs=list(cand.cell_refs),
                 metrics=dict(cand.payload),
@@ -295,6 +297,9 @@ def test_ebitda_drop_without_hardcode_is_dynamics() -> None:
     )
     assert [c.kind for c in report.conclusions] == ["dynamics"]
     assert report.conclusions[0].finding_ids == ["B-F02"]
+    assert "EBITDA" in report.conclusions[0].title
+    assert "frs.F02" not in report.conclusions[0].body
+    assert "изменение" in report.conclusions[0].body.casefold()
     assert report.summary.headline == EMPTY_HEADLINE
 
 
