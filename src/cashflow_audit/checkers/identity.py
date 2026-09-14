@@ -10,6 +10,8 @@ from cashflow_audit.parse.a1 import format_addr
 
 I1_CONCEPTS = ("bs.assets_total", "bs.equity", "bs.liabilities")
 I3A_CONCEPTS = ("bs.cash", "cf.fcf")
+I3A_DERIVED = ("bs.cash", "cf.cfo", "cf.capex")
+I3A_CFF = ("cf.drawdown", "cf.repayment", "cf.dividends", "cf.equity_issue")
 I3B_CONCEPTS = ("bs.retained_earnings", "pnl.net_income")
 I13_CONCEPTS = ("bs.equity", "pnl.net_income", "cf.dividends")
 I4_CONCEPTS = ("pnl.revenue", "pnl.volume", "pnl.price")
@@ -42,11 +44,10 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
             _i1(ctx, group["bs.assets_total"], group["bs.equity"], group["bs.liabilities"])
         )
     qn = _maybe_question(questions, qn, "I3a", ("bs.cash",), book, ctx)
-    for group in _groups(by_block, book, I3A_CONCEPTS):
-        flows = [group["cf.fcf"]]
+    for group, flows in _i3a_flow_groups(by_block, book):
         fx = group.get("fx.cash") or book.get("fx.cash")
         if fx is not None:
-            flows.append(fx)
+            flows = [*flows, fx]
         candidates.extend(
             _rollforward(ctx, "identity.I3a", group["bs.cash"], flows, add=True)
         )
@@ -224,6 +225,21 @@ def _one_total(ctx: CheckContext) -> dict[str, MappedRow]:
             continue
         _pick_total(chosen, row)
     return chosen
+
+
+def _i3a_flow_groups(
+    by_block: dict[str, dict[str, MappedRow]],
+    book: dict[str, MappedRow],
+) -> list[tuple[dict[str, MappedRow], list[MappedRow]]]:
+    mapped = _groups(by_block, book, I3A_CONCEPTS)
+    if mapped:
+        return [(group, [group["cf.fcf"]]) for group in mapped]
+    if any(cid in book for cid in I3A_CFF):
+        return []
+    return [
+        (group, [group["cf.cfo"], group["cf.capex"]])
+        for group in _groups(by_block, book, I3A_DERIVED)
+    ]
 
 
 def _groups(

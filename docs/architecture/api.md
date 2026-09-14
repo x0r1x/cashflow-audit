@@ -242,7 +242,7 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 
 `GET .../layout`, `.../mapping`, `.../integrity` — тот же `X-Actor-Id`, 403/404 как у report. Нет файла → `409` с `error` (`layout_not_ready` / `mapping_not_ready` / `integrity_not_ready` / `report_not_ready`), `status`, `stage`.
 
-`200` у `/report` — тонкий итог FRS (матрица, issues, verdict, conclusions, индекс questions). Карточки Excel/identity — `/integrity`, не дублируются здесь.
+`200` у `/report` — тонкий итог FRS (матрица, issues, positives, verdict, conclusions, индекс questions). Карточки Excel/identity — `GET .../integrity` (`f_*`), не дублируются в `findings`. FRS-проза — в `issues` (`B-F04`). `ready_for_credit` только в `verdict`: `false` или `null`, никогда `true`.
 
 `200` — канон выхода приложения:
 
@@ -255,41 +255,54 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
   "llm_used": true,
   "embeddings_used": true,
   "summary": {
-    "findings": 4,
-    "by_severity": { "error": 1, "warning": 2, "risk": 1 },
+    "findings": 0,
+    "by_severity": { "error": 0, "warning": 0, "risk": 0 },
     "questions": 1,
-    "headline": "Баланс не сходится; снижение EBITDA зависит от ручной подстановки"
+    "headline": "Баланс не сходится (f_001)"
   },
-  "findings": [
+  "findings": [],
+  "risk_screen": [
+    {"id": "F01", "name": "Динамика выручки факт→прогноз", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F02", "name": "EBITDA и маржа", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"margin": 0.18}, "cell_refs": [], "issue_id": null},
+    {"id": "F03", "name": "Убытки / отр. EBITDA", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F04", "name": "CFO/FCF и разрыв прибыль→деньги", "status": "flagged", "confidence": "medium", "evidence": "", "metrics": {"ni": 100, "cfo": 40, "fcf": -20, "cause": "ops"}, "cell_refs": ["CF!E12"], "issue_id": "B-F04"},
+    {"id": "F05", "name": "Оборотный капитал", "status": "insufficient", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F06", "name": "Долговая нагрузка", "status": "clear", "confidence": "medium", "evidence": "", "metrics": {"ratio": 2.1, "prev_ratio": 3.0}, "cell_refs": [], "issue_id": null},
+    {"id": "F07", "name": "ICR / DSCR", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"icr": 4.5}, "cell_refs": [], "issue_id": null},
+    {"id": "F08", "name": "Ликвидность", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"min_cash": 50, "period_key": "2025-03"}, "cell_refs": [], "issue_id": null},
+    {"id": "F09", "name": "Концентрация погашений", "status": "clear", "confidence": "medium", "evidence": "", "metrics": {"share": 0.22, "year": "2026"}, "cell_refs": [], "issue_id": null},
+    {"id": "F10", "name": "Процентный / валютный", "status": "insufficient", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F11", "name": "Агрессивность предпосылок", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F12", "name": "Непоследовательность драйверов", "status": "not_applicable", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F13", "name": "Дивиденды vs FCFE", "status": "not_applicable", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
+    {"id": "F14", "name": "Headroom", "status": "insufficient", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null}
+  ],
+  "issues": [
     {
-      "id": "f_014",
-      "severity": "warning",
-      "detector": "hardcode_in_formula",
-      "cell_refs": ["P&L!D24"],
-      "title": "Ставка роста 20% зашита в формулу",
-      "evidence": "D23=C23*(1+Inputs!D5); D24=C24*1.20. Прогнозный период.",
-      "affected_metrics": ["pnl.revenue", "pnl.ebitda"],
-      "impact": "направление: искажение прогнозной выручки",
-      "recommendation": "Сверить ставку с листом Inputs, заменить константу на ссылку. Файл не изменён.",
-      "related_ids": ["f_022"],
-      "tags": [],
-      "need_user_input": false
-    },
-    {
-      "id": "f_001",
-      "severity": "error",
-      "detector": "identity.I1",
-      "cell_refs": ["BS!E27", "BS!E63"],
-      "title": "Баланс не сходится",
-      "evidence": "Assets 475557 − (Equity+Liabilities) 475557 ≠ 0 в 2023E; в 2025E delta = 1200 (порог 475).",
-      "affected_metrics": ["bs.assets", "bs.equity", "bs.liabilities"],
-      "impact": "≈1200 ед. отчётности; прочие метрики периода могут быть недостоверны",
-      "recommendation": "Проверить скрытые строки и ручную корректировку у итога. Файл не изменён.",
-      "related_ids": [],
-      "tags": ["hidden"],
-      "need_user_input": false
+      "id": "B-F04",
+      "control_id": "F04",
+      "class_name": "cash_conversion",
+      "priority": "medium",
+      "metrics": {"ni": 100, "cfo": 40, "fcf": -20, "cause": "ops"},
+      "cell_refs": ["CF!E12"],
+      "cause": "Прибыль не конвертируется в кэш (ops)",
+      "impact": "NI 100 при CFO 40 и FCF −20"
     }
   ],
+  "positives": [
+    {"control_id": "F02", "text": "Маржа EBITDA 0.18"},
+    {"control_id": "F06", "text": "ND/EBITDA снизился с 3x до 2.1x"},
+    {"control_id": "F07", "text": "ICR 4.5x"},
+    {"control_id": "F08", "text": "min cash 50 (2025-03)"}
+  ],
+  "verdict": {
+    "integrity": "Расчётная целостность нарушена.",
+    "trends": "Прибыль не равна деньгам (NI vs CFO vs FCF).",
+    "risks": "F04 (medium)",
+    "liquidity": "F08 min cash 50 (clear); F09 концентрация погашений 22% в 2026",
+    "recommendation": "Модель не готова к кредитному процессу, пока не закрыты перечисленные B-F* и вопросы целостности.",
+    "ready_for_credit": false
+  },
   "conclusions": [
     {
       "id": "c_001",
@@ -304,14 +317,14 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
     },
     {
       "id": "c_002",
-      "kind": "combo",
-      "severity": "warning",
-      "metrics": ["pnl.revenue", "pnl.ebitda"],
-      "title": "Снижение EBITDA зависит от ручной подстановки",
-      "body": "В формуле зашита константа (P&L!D24); одновременно падает EBITDA/маржа. Динамику нельзя читать как факт модели.",
-      "finding_ids": ["f_014"],
-      "cell_refs": ["P&L!D24"],
-      "recommendation": "Сверить константу с блоком предпосылок. Файл не изменён."
+      "kind": "dynamics",
+      "severity": "risk",
+      "metrics": ["pnl.net_income", "cf.fcf"],
+      "title": "Прибыль не равна деньгам",
+      "body": "По равенствам эта метрика в этом прогоне не опровергнута; наблюдается сигнал frs.F04 (CF!E12).",
+      "finding_ids": ["B-F04"],
+      "cell_refs": ["CF!E12"],
+      "recommendation": "Проверить указанные ячейки. Файл не изменён."
     }
   ],
   "questions": [
@@ -331,11 +344,9 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 }
 ```
 
-Поля находки = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR находки в ответе нет.
+`findings` в тонком отчёте пустой: Excel/identity не копируются сюда (они в `/integrity` как `f_*`). Поля находки integrity = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR карточки в `/integrity` нет.
 
-Карточки `excel_error` / `identity.*` в примере выше живут в `GET .../integrity`. `/report` держит FRS (`risk_screen`: 14 строк F01–F14, `ready_for_credit` false или null) и цитирует integrity id в conclusions.
-
-`summary.headline` — одна фраза из выводов (не вердикт «модель верна»). `conclusions[]` собирает код из уже существующих карточек: `finding_ids` непустые, `cell_refs` ⊆ refs этих находок ⊆ IR. LLM текст выводов не пишет. Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
+`summary.headline` — одна фраза: сначала trust-error с id integrity (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не вердикт «модель верна». `conclusions[]` собирает код: `finding_ids` — `f_*` из integrity **или** `B-F*` из `issues`; `cell_refs` ⊆ refs этих карточек/issues ⊆ IR. LLM текст выводов и вердикт не пишет; ChatPort может переписать только cause/impact flagged-issue (текст, не числа, не статус F-строки). Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 
 `404` если аудита не было. `403` если `X-Actor-Id` не владелец (`owner.json`). Отдельного `/findings` нет. `sha256` в отчёте — хеш **содержимого** файла, не `audit_id`.
 
@@ -389,7 +400,7 @@ Content-Type: application/json
 POST /v1/audits                    202  { audit_id, status: queued }
 GET  /v1/audits/{id}               200  { status: running, stage: compile }
 GET  /v1/audits/{id}               200  { status: needs_input, report_url }
-GET  /v1/audits/{id}/report        200  { findings, questions }
+GET  /v1/audits/{id}/report        200  { risk_screen, issues, positives, verdict, conclusions, questions }
 POST /v1/audits/{id}/answers       202  { status: queued, stage: queued }
 GET  /v1/audits/{id}/report        200  { status: succeeded, questions: [] }
 ```

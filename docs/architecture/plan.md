@@ -328,7 +328,7 @@ I4: `revenue ≈ abs(volume) × abs(price)`. Есть выручка и объё
 
 I6: `EBITDA ≈ revenue − COGS − OPEX` если все четыре mapped. Нет OPEX — молчит, не HITL и не выдуманный other income.
 
-I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error) + mapped `fx.cash`. Нет net CF → не Finding. Нет FX — курс не выдумываем. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
+I3a: rollforward от **net CF**: mapped `cf.fcf`, иначе derived `CFO+CAPEX` **только если в mapping нет CFF**; есть CFF без `cf.fcf` → не Finding (не `+CFO`, capex иначе даёт ложный error). Нет net CF → молчит. + mapped `fx.cash`. Нет FX — курс не выдумываем. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
 
 I3b: `opening RE + NI − dividends + mapped bs.re_adj = closing`. Нет корректировки — не выдумываем. I13 — итог капитала, не НП.
 
@@ -383,14 +383,14 @@ F01 выручка (падение / обрыв факт→прогноз / пл
 
 ### 8.9 explain + report
 
-ChatPort под `try_slot("llm")`. Шаблон всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только title/evidence/recommendation/need_user_input; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа impact. `related_ids` — общий downstream. LLM не пишет вердикт FRS и не ставит статус F-строки.
+ChatPort под `try_slot("llm")`. Шаблон integrity всегда полный. SeverityPolicy: freeze (`hist_manual_adjustment`, `edge_period`, `likely_intentional`) не выше warning. Top-N, бюджет Redis INCR → ChatPort только cause/impact flagged FRS-issue; cited_refs ⊆ вход иначе шаблон. Не меняет detector, refs, metrics, числа. `related_ids` — общий downstream у integrity. LLM не пишет вердикт FRS и не ставит статус F-строки.
 
 Нарезка контента:
 
-- `integrity.json` — карточки техники и identity (Note01+02)
-- тонкий `report.json` — матрица F01–F14, issues, positives, verdict, conclusions, индекс questions. **Нет** полного списка excel_error / unused_cell
+- `integrity.json` — карточки техники и identity (Note01+02), id `f_*`
+- тонкий `report.json` — матрица F01–F14, issues (`B-F*`), positives, verdict, conclusions, индекс questions. `findings` пустой (или только FRS-карточки, но **не** дублировать detector+refs в integrity). **Нет** полного списка excel_error / unused_cell
 
-`conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline` из выводов; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null}.
+`conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. Combo не копирует тело карточки. `finding_ids` — `f_*` integrity **или** `B-F*` issue. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline`: trust-error с id integrity > high F-issue (`B-F*`) > шаблон полноты; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null} в `verdict`. ChatPort — только проза flagged issues (cause/impact текст, не числа); не вердикт и не статус F-строки.
 
 Drop находки без ref ∈ IR.
 

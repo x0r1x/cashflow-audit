@@ -3,6 +3,7 @@ from __future__ import annotations
 from cashflow_audit.checkers.models import Candidate, CheckDocument
 from cashflow_audit.explain.compose import compose_report
 from cashflow_audit.explain.models import Report
+from cashflow_audit.frs.models import ControlResult, FrsDocument, FrsIssue
 from cashflow_audit.lineage.models import Impact, LineageDocument, LineageItem
 from cashflow_audit.mapping.models import MappingDocument, MappingQuestion
 from tests.helpers.ports import FakeChat, GrantSlots
@@ -10,7 +11,6 @@ from tests.helpers.ports import FakeChat, GrantSlots
 EMPTY_HEADLINE = (
     "По включённым проверкам явных разрывов не найдено. Полнота не гарантируется."
 )
-DYNAMICS_HEADLINE = "По равенствам явных разрывов нет; есть сигналы риска."
 MAPPING_NOTE = "Маппинг неполный, равенства могут молчать."
 
 
@@ -42,6 +42,39 @@ def _lin(index: int = 0, **kwargs) -> LineageItem:
     return LineageItem.model_validate(base)
 
 
+def _frs_from(candidates: list[Candidate], *, high: str | None = None) -> FrsDocument | None:
+    issues: list[FrsIssue] = []
+    controls: list[ControlResult] = []
+    for cand in candidates:
+        if not cand.detector.startswith("frs."):
+            continue
+        cid = cand.detector.removeprefix("frs.")
+        issue = FrsIssue.model_validate(
+            {
+                "id": f"B-{cid}",
+                "control_id": cid,
+                "class_name": "assumptions",
+                "priority": "high" if cid == high else "low",
+                "metrics": dict(cand.payload),
+                "cell_refs": list(cand.cell_refs),
+            }
+        )
+        issues.append(issue)
+        controls.append(
+            ControlResult(
+                id=cid,
+                name=cid,
+                status="flagged",
+                cell_refs=list(cand.cell_refs),
+                metrics=dict(cand.payload),
+                issue_id=issue.id,
+            )
+        )
+    if not issues:
+        return None
+    return FrsDocument(controls=controls, issues=issues)
+
+
 def _report(
     candidates: list[Candidate],
     items: list[LineageItem],
@@ -49,6 +82,7 @@ def _report(
     mapping: MappingDocument | None = None,
     check: CheckDocument | None = None,
     chat: FakeChat | None = None,
+    high: str | None = None,
 ) -> Report:
     refs: set[str] = set()
     for cand in candidates:
@@ -65,6 +99,7 @@ def _report(
         ir_refs=refs,
         chat=chat,
         slots=GrantSlots(),
+        frs=_frs_from(candidates, high=high),
     )
 
 
@@ -102,7 +137,7 @@ def test_hardcode_and_ebitda_drop_is_combo() -> None:
     combos = [c for c in report.conclusions if c.kind == "combo"]
     assert len(combos) == 1
     combo = combos[0]
-    assert set(combo.finding_ids) == {report.findings[0].id, report.findings[1].id}
+    assert set(combo.finding_ids) == {report.integrity_findings[0].id, "B-F02"}
     assert set(combo.cell_refs) <= {"P&L!D24", "P&L!D20", "P&L!C3"}
     assert set(combo.cell_refs) >= {"P&L!D24", "P&L!D20"}
     assert "pnl.ebitda" in combo.metrics
@@ -149,7 +184,10 @@ def test_identity_i1_two_periods_collapse_to_one_trust() -> None:
     )
     trusts = [c for c in report.conclusions if c.kind == "trust"]
     assert len(trusts) == 1
-    assert set(trusts[0].finding_ids) == {report.findings[0].id, report.findings[1].id}
+    assert set(trusts[0].finding_ids) == {
+        report.integrity_findings[0].id,
+        report.integrity_findings[1].id,
+    }
     assert "2" in trusts[0].body
     assert trusts[0].severity == "error"
 
@@ -190,7 +228,7 @@ def test_i1_and_cash_negative_same_col_is_combo() -> None:
     )
     combos = [c for c in report.conclusions if c.kind == "combo"]
     assert len(combos) == 1
-    assert set(combos[0].finding_ids) == {report.findings[0].id, report.findings[1].id}
+    assert set(combos[0].finding_ids) == {report.integrity_findings[0].id, "B-F08"}
     assert combos[0].severity == "error"
     blob = f"{combos[0].title} {combos[0].body}".casefold()
     assert "финанс" in blob or "касс" in blob or "денеж" in blob
@@ -233,7 +271,7 @@ def test_external_link_and_metric_is_combo() -> None:
     combos = [c for c in report.conclusions if c.kind == "combo"]
     assert len(combos) == 1
     assert "внешн" in combos[0].title.casefold() or "внешн" in combos[0].body.casefold()
-    assert set(combos[0].finding_ids) == {report.findings[0].id, report.findings[1].id}
+    assert set(combos[0].finding_ids) == {report.integrity_findings[0].id, "B-F02"}
 
 
 def test_ebitda_drop_without_hardcode_is_dynamics() -> None:
@@ -256,8 +294,8 @@ def test_ebitda_drop_without_hardcode_is_dynamics() -> None:
         ],
     )
     assert [c.kind for c in report.conclusions] == ["dynamics"]
-    assert report.conclusions[0].finding_ids == [report.findings[0].id]
-    assert report.summary.headline == DYNAMICS_HEADLINE
+    assert report.conclusions[0].finding_ids == ["B-F02"]
+    assert report.summary.headline == EMPTY_HEADLINE
 
 
 def test_hardcode_on_other_metric_is_not_combo() -> None:
@@ -376,11 +414,15 @@ def test_conclusion_refs_are_subset_of_cited_findings() -> None:
             ),
         ],
     )
-    by_id = {f.id: f for f in report.findings}
+    by_id: dict[str, list[str]] = {
+        item.id: list(item.cell_refs) for item in report.integrity_findings
+    }
+    for issue in report.issues:
+        by_id[issue.id] = list(issue.cell_refs)
     for conclusion in report.conclusions:
-        cited = set()
+        cited: set[str] = set()
         for fid in conclusion.finding_ids:
-            cited.update(by_id[fid].cell_refs)
+            cited.update(by_id[fid])
         assert conclusion.finding_ids
         assert conclusion.cell_refs
         assert set(conclusion.cell_refs) <= cited
@@ -420,5 +462,56 @@ def test_unused_cell_is_not_a_conclusion() -> None:
             )
         ],
     )
-    assert report.findings
+    assert report.integrity_findings
+    assert report.findings == []
     assert report.conclusions == []
+
+
+def test_headline_cites_integrity_error_id() -> None:
+    a = _cand(
+        detector="identity.I1",
+        cell_refs=["BS!C27"],
+        payload={"delta": 10.0, "col": 3},
+        base_severity="error",
+    )
+    report = _report(
+        [a],
+        [
+            _lin(
+                0,
+                detector="identity.I1",
+                cell_refs=["BS!C27"],
+                output_refs=["BS!C27"],
+                affected_metrics=["bs.assets_total"],
+                path_refs=["BS!C27"],
+            )
+        ],
+    )
+    assert report.integrity_findings[0].id == "f_001"
+    assert "f_001" in report.summary.headline
+    assert "Баланс" in report.summary.headline
+
+
+def test_headline_high_f_issue_when_no_trust_error() -> None:
+    drop = _cand(
+        detector="frs.F08",
+        cell_refs=["BS!E10"],
+        payload={"col": 5},
+        base_severity="risk",
+    )
+    report = _report(
+        [drop],
+        [
+            _lin(
+                0,
+                detector="frs.F08",
+                cell_refs=["BS!E10"],
+                output_refs=["BS!E10"],
+                affected_metrics=["bs.cash"],
+                path_refs=["BS!E10"],
+            )
+        ],
+        high="F08",
+    )
+    assert "B-F08" in report.summary.headline
+    assert EMPTY_HEADLINE not in report.summary.headline

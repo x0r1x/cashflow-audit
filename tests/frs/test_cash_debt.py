@@ -58,6 +58,10 @@ def test_f04_negative_fcf_with_profit_is_flagged() -> None:
     issue = _issue(doc, "F04")
     assert issue.priority == "medium"
     assert issue.class_name == "cash_conversion"
+    assert issue.cause in {"ops", "wc_ar", "wc_ap", "capex", "dividends"}
+    assert row.metrics.get("ni") == 12.0
+    assert row.metrics.get("fcf") == -2.0
+    assert row.metrics.get("cause") == issue.cause
     assert "CF!C2" in row.cell_refs
     assert "CF!D2" in row.cell_refs
 
@@ -174,8 +178,54 @@ def test_f04_profit_and_fcf_positive_is_clear() -> None:
             cell("CF", "D2", "11"),
         ],
     )
-    assert _control(doc, "F04").status == "clear"
+    row = _control(doc, "F04")
+    assert row.status == "clear"
     assert not any(i.control_id == "F04" for i in doc.issues)
+    assert row.metrics.get("ni") == 14.0
+    assert row.metrics.get("fcf") == 11.0
+    assert "cfo" not in row.metrics
+    assert "accruals" not in row.metrics
+    assert row.metrics.get("cause") in {"ops", "wc_ar", "wc_ap", "capex", "dividends"}
+
+
+def test_f04_clear_payload_includes_ni_cfo_fcf() -> None:
+    layout = _stack(
+        simple_layout([LayoutRow(row=2, label="NI")], sheet="P&L", axis=YEARS),
+        simple_layout(
+            [LayoutRow(row=2, label="CFO"), LayoutRow(row=3, label="FCF")],
+            sheet="CF",
+            axis=YEARS,
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("P&L", 2, "NI", "pnl.net_income", role="output"),
+            mapped("CF", 2, "CFO", "cf.cfo", role="output"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "10"),
+            cell("P&L", "C2", "12"),
+            cell("P&L", "D2", "14"),
+            cell("CF", "B2", "9"),
+            cell("CF", "C2", "11"),
+            cell("CF", "D2", "13"),
+            cell("CF", "B3", "8"),
+            cell("CF", "C3", "9"),
+            cell("CF", "D3", "11"),
+        ],
+    )
+    row = _control(doc, "F04")
+    assert row.status == "clear"
+    assert row.metrics.get("ni") == 14.0
+    assert row.metrics.get("cfo") == 13.0
+    assert row.metrics.get("fcf") == 11.0
+    assert row.metrics.get("accruals") == 1.0
+    assert row.metrics.get("cause") in {"ops", "wc_ar", "wc_ap", "capex", "dividends"}
 
 
 def test_f06_ratio_jump_is_flagged() -> None:
@@ -657,7 +707,7 @@ def test_f08_cash_plug_is_not_clear() -> None:
     assert _issue(doc, "F08").cause == "cash_plug"
 
 
-def test_f13_dividends_while_fcf_red_is_high() -> None:
+def test_f13_dividends_while_fcf_red_without_draw_is_not_high() -> None:
     layout = simple_layout(
         [LayoutRow(row=2, label="Div"), LayoutRow(row=3, label="FCF")],
         sheet="CF",
@@ -684,8 +734,50 @@ def test_f13_dividends_while_fcf_red_is_high() -> None:
     row = _control(doc, "F13")
     assert row.status == "flagged"
     issue = _issue(doc, "F13")
+    assert issue.priority != "high"
+    assert issue.class_name == "dividend_policy"
+    assert "fcfe" not in row.metrics
+
+
+def test_f13_dividends_while_fcf_red_with_drawdown_is_high() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Div"),
+            LayoutRow(row=3, label="FCF"),
+            LayoutRow(row=4, label="Draw"),
+        ],
+        sheet="CF",
+        axis=YEARS,
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Div", "cf.dividends", role="calculation"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="output"),
+            mapped("CF", 4, "Draw", "cf.drawdown", role="calculation"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("CF", "B2", "0"),
+            cell("CF", "C2", "5"),
+            cell("CF", "D2", "5"),
+            cell("CF", "B3", "4"),
+            cell("CF", "C3", "-10"),
+            cell("CF", "D3", "-8"),
+            cell("CF", "B4", "0"),
+            cell("CF", "C4", "20"),
+            cell("CF", "D4", "20"),
+        ],
+    )
+    row = _control(doc, "F13")
+    assert row.status == "flagged"
+    issue = _issue(doc, "F13")
     assert issue.priority == "high"
     assert issue.class_name == "dividend_policy"
+    assert row.metrics.get("fcfe") == 10.0
+    assert row.metrics.get("fcff") == -10.0
 
 
 def test_f13_without_fcf_is_insufficient() -> None:

@@ -103,8 +103,10 @@ def test_writes_report_and_meta_atomically(dest: Path) -> None:
     dumped = json.loads((dest / "report.json").read_text(encoding="utf-8"))
     integrity = json.loads((dest / "integrity.json").read_text(encoding="utf-8"))
     assert meta["stage"] == "done"
-    assert report.findings
+    assert report.findings == []
+    assert report.integrity_findings
     assert dumped["findings"] == []
+    assert "integrity_findings" not in dumped
     assert dumped["verdict"]["ready_for_credit"] is False
     assert len(dumped["risk_screen"]) == 14
     assert integrity["findings"][0]["detector"] == "excel_error"
