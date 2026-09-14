@@ -645,3 +645,45 @@ def test_report_is_thin_integrity_stays_on_its_route(
         )
         assert forbidden.status_code == 403
 
+
+def test_no_findings_or_risk_screen_routes(tmp_path: Path, book: Path) -> None:
+    data = book.read_bytes()
+    sha = sha256_bytes(data)
+    audit_id = audit_id_for("u1", sha)
+    with api_client(tmp_path) as (client, data_root, _bus):
+        dest = data_root / "audits" / audit_id
+        _seed_report(dest, actor="u1", filename="m.xlsx", sha=sha)
+        for suffix in ("findings", "risk-screen"):
+            res = client.get(
+                f"/v1/audits/{audit_id}/{suffix}", headers={"X-Actor-Id": "u1"}
+            )
+            assert res.status_code == 404
+
+
+def test_running_audit_lists_only_existing_content(tmp_path: Path, book: Path) -> None:
+    data = book.read_bytes()
+    sha = sha256_bytes(data)
+    audit_id = audit_id_for("u1", sha)
+    with api_client(tmp_path) as (client, data_root, bus):
+        dest = data_root / "audits" / audit_id
+        dest.mkdir(parents=True, exist_ok=True)
+        write_json(
+            dest / "owner.json",
+            {"actor_id": "u1", "content_sha256": sha, "source_filename": "m.xlsx"},
+        )
+        write_json(dest / "layout.json", {"sheets": []})
+        bus.live[audit_id] = JobState(status="running", stage="mapping", actor_id="u1")
+        res = client.get(f"/v1/audits/{audit_id}", headers={"X-Actor-Id": "u1"})
+        assert res.status_code == 200
+        body = res.json()
+        assert body["status"] == "running"
+        assert body["content"] == {
+            "layout": f"/v1/audits/{audit_id}/layout",
+        }
+        assert "report_url" not in body
+        missing = client.get(
+            f"/v1/audits/{audit_id}/integrity", headers={"X-Actor-Id": "u1"}
+        )
+        assert missing.status_code == 409
+        assert missing.json()["error"] == "integrity_not_ready"
+
