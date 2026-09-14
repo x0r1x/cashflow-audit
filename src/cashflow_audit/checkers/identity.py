@@ -43,8 +43,12 @@ def detect_identities(ctx: CheckContext) -> tuple[list[Candidate], list[MappingQ
         )
     qn = _maybe_question(questions, qn, "I3a", ("bs.cash",), book, ctx)
     for group in _groups(by_block, book, I3A_CONCEPTS):
+        flows = [group["cf.fcf"]]
+        fx = group.get("fx.cash") or book.get("fx.cash")
+        if fx is not None:
+            flows.append(fx)
         candidates.extend(
-            _rollforward(ctx, "identity.I3a", group["bs.cash"], [group["cf.fcf"]], add=True)
+            _rollforward(ctx, "identity.I3a", group["bs.cash"], flows, add=True)
         )
     qn = _maybe_question(questions, qn, "I3b", I3B_CONCEPTS, book, ctx)
     for group in _groups(by_block, book, I3B_CONCEPTS):

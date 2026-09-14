@@ -328,7 +328,7 @@ I4: `revenue ≈ abs(volume) × abs(price)`. Есть выручка и объё
 
 I6: `EBITDA ≈ revenue − COGS − OPEX` если все четыре mapped. Нет OPEX — молчит, не HITL и не выдуманный other income.
 
-I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error). Нет net CF → не Finding. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
+I3a: rollforward от **net CF** (mapped `cf.fcf`, иначе не `+CFO` — capex даёт ложный error) + mapped `fx.cash`. Нет net CF → не Finding. Нет FX — курс не выдумываем. Если касса есть и на BS, и на CF — равенство EoP (требования №3).
 
 I3b: `opening RE + NI − dividends + mapped bs.re_adj = closing`. Нет корректировки — не выдумываем. I13 — итог капитала, не НП.
 

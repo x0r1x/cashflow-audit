@@ -30,6 +30,7 @@ def test_taxonomy_includes_fcf_repayment_drawdown() -> None:
         "pnl.deferred_tax",
         "fx.equity",
         "bs.re_adj",
+        "fx.cash",
     } <= ids
 
 
@@ -261,3 +262,18 @@ def test_re_adj_labels_are_specific() -> None:
     assert "equity" not in labels
     assert "retained earnings" not in labels
     assert "корректировка" not in labels
+
+
+def test_cash_fx_labels_are_specific() -> None:
+    by_id = {c.id: c for c in load_taxonomy()}
+    assert "fx.cash" in by_id
+    labels = {label.lower() for label in by_id["fx.cash"].labels}
+    assert "cash fx" in labels
+    assert "fx on cash" in labels
+    assert "переоценка кассы" in labels
+    assert "fx" not in labels
+    assert "fx rate" not in labels
+    assert "курс" not in labels
+    assert "usd/rub" not in labels
+    assert "cash" not in labels
+    assert "fcf" not in labels

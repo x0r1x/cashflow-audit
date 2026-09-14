@@ -182,6 +182,71 @@ def test_i3a_fcf_rollforward_break() -> None:
     assert "CF!C3" in found[0].cell_refs
 
 
+def test_i3a_mapped_fx_explains_gap_is_silent() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Cash"),
+            LayoutRow(row=3, label="FCF"),
+            LayoutRow(row=4, label="Cash FX"),
+        ],
+        sheet="CF",
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="calculation"),
+            mapped("CF", 4, "Cash FX", "fx.cash", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("CF", "B2", "100"),
+                cell("CF", "C2", "130"),
+                cell("CF", "C3", "10"),
+                cell("CF", "C4", "20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    assert not [c for c in result.candidates if c.detector == "identity.I3a"]
+
+
+def test_i3a_mapped_fx_still_broken_is_error() -> None:
+    layout = simple_layout(
+        [
+            LayoutRow(row=2, label="Cash"),
+            LayoutRow(row=3, label="FCF"),
+            LayoutRow(row=4, label="Cash FX"),
+        ],
+        sheet="CF",
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("CF", 2, "Cash", "bs.cash", role="output"),
+            mapped("CF", 3, "FCF", "cf.fcf", role="calculation"),
+            mapped("CF", 4, "Cash FX", "fx.cash", role="calculation"),
+        ]
+    )
+    result = run_checks(
+        ctx(
+            [
+                cell("CF", "B2", "100"),
+                cell("CF", "C2", "150"),
+                cell("CF", "C3", "10"),
+                cell("CF", "C4", "20"),
+            ],
+            layout=layout,
+            mapping=mapping,
+        )
+    )
+    found = [c for c in result.candidates if c.detector == "identity.I3a"]
+    assert found
+    assert found[0].base_severity == "error"
+    assert "CF!C4" in found[0].cell_refs
+
+
 def test_i3a_pairs_cash_and_fcf_across_sheets() -> None:
     bs = simple_layout([LayoutRow(row=2, label="Cash")], sheet="BS")
     cf = simple_layout([LayoutRow(row=3, label="FCF")], sheet="CF")
