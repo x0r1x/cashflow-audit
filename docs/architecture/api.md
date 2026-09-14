@@ -39,7 +39,7 @@ cashflow-audit audit ./model.xlsx -o ./report.json
 | `/v1/audits/{id}/layout` | `layout.json` | оси, блоки, роли периодов |
 | `/v1/audits/{id}/mapping` | `mapping.json` | rows + mapping questions |
 | `/v1/audits/{id}/integrity` | `integrity.json` | карточки техники и identity |
-| `/v1/audits/{id}/report` | `report.json` | FRS F01–F14, issues, вердикт, conclusions, индекс questions |
+| `/v1/audits/{id}/report` | `report.json` | FRS `{matrix, issues, positives, verdict}`, conclusions, индекс questions |
 
 Не отдаём: parquet, `cached_value`, формулы, `source.xlsx`, `candidates.json`, `frs.json`, `lineage.json`. Нет `/findings` и нет `/risk-screen` (FRS = `/report`).
 
@@ -242,7 +242,7 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 
 `GET .../layout`, `.../mapping`, `.../integrity` — тот же `X-Actor-Id`, 403/404 как у report. Нет файла → `409` с `error` (`layout_not_ready` / `mapping_not_ready` / `integrity_not_ready` / `report_not_ready`), `status`, `stage`.
 
-`200` у `/report` — тонкий итог FRS (матрица, issues, positives, verdict, conclusions, индекс questions). Карточки Excel/identity — `GET .../integrity` (`f_*`), не дублируются в `findings`. FRS-проза — в `issues` (`B-F04`). `ready_for_credit` только в `verdict`: `false` или `null`, никогда `true`.
+`200` у `/report` — тонкий итог FRS: `risk_screen` содержит `matrix`, `issues`, `positives`, `verdict`; рядом лежат conclusions и индекс questions. Карточки Excel/identity — `GET .../integrity` (`f_*`), не дублируются в `findings`. FRS-проза — в `risk_screen.issues` (`B-F04`). `ready_for_credit` только в `risk_screen.verdict`: `false` или `null`, никогда `true`.
 
 `200` — канон выхода приложения:
 
@@ -261,7 +261,8 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
     "headline": "Баланс не сходится (f_001)"
   },
   "findings": [],
-  "risk_screen": [
+  "risk_screen": {
+    "matrix": [
     {"id": "F01", "name": "Динамика выручки факт→прогноз", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
     {"id": "F02", "name": "EBITDA и маржа", "status": "clear", "confidence": "high", "evidence": "", "metrics": {"margin": 0.18}, "cell_refs": [], "issue_id": null},
     {"id": "F03", "name": "Убытки / отр. EBITDA", "status": "clear", "confidence": "high", "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
@@ -276,32 +277,33 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
     {"id": "F12", "name": "Непоследовательность драйверов", "status": "not_applicable", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
     {"id": "F13", "name": "Дивиденды vs FCFE", "status": "not_applicable", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null},
     {"id": "F14", "name": "Headroom", "status": "insufficient", "confidence": null, "evidence": "", "metrics": {}, "cell_refs": [], "issue_id": null}
-  ],
-  "issues": [
+    ],
+    "issues": [
     {
       "id": "B-F04",
       "control_id": "F04",
-      "class_name": "cash_conversion",
+      "class": "cash_conversion",
       "priority": "medium",
       "metrics": {"ni": 100, "cfo": 40, "fcf": -20, "cause": "ops"},
       "cell_refs": ["CF!E12"],
       "cause": "Прибыль не конвертируется в кэш (ops)",
       "impact": "NI 100 при CFO 40 и FCF −20"
     }
-  ],
-  "positives": [
+    ],
+    "positives": [
     {"control_id": "F02", "text": "Маржа EBITDA 0.18"},
     {"control_id": "F06", "text": "ND/EBITDA снизился с 3x до 2.1x"},
     {"control_id": "F07", "text": "ICR 4.5x"},
     {"control_id": "F08", "text": "min cash 50 (2025-03)"}
-  ],
-  "verdict": {
-    "integrity": "Расчётная целостность нарушена.",
-    "trends": "Прибыль не равна деньгам (NI vs CFO vs FCF).",
-    "risks": "F04 (medium)",
-    "liquidity": "F08 min cash 50 (clear); F09 концентрация погашений 22% в 2026",
-    "recommendation": "Модель не готова к кредитному процессу, пока не закрыты перечисленные B-F* и вопросы целостности.",
-    "ready_for_credit": false
+    ],
+    "verdict": {
+      "integrity": "Расчётная целостность нарушена.",
+      "trends": "Прибыль не равна деньгам (NI vs CFO vs FCF).",
+      "risks": "F04 (medium)",
+      "liquidity": "F08 min cash 50 (clear); F09 концентрация погашений 22% в 2026",
+      "recommendation": "Модель не готова к кредитному процессу, пока не закрыты перечисленные B-F* и вопросы целостности.",
+      "ready_for_credit": false
+    }
   },
   "conclusions": [
     {
@@ -346,7 +348,7 @@ Poll раз в 1–2 с, пока `queued` или `running`. Заголовок 
 
 `findings` в тонком отчёте пустой: Excel/identity не копируются сюда (они в `/integrity` как `f_*`). Поля находки integrity = требования: адрес, доказательство, метрики, влияние, рекомендация без правки файла. Без `cell_refs` из IR карточки в `/integrity` нет.
 
-`summary.headline` — одна фраза: сначала trust-error с id integrity (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не вердикт «модель верна». `conclusions[]` собирает код: `finding_ids` — `f_*` из integrity **или** `B-F*` из `issues`; `cell_refs` ⊆ refs этих карточек/issues ⊆ IR. LLM текст выводов и вердикт не пишет; ChatPort может переписать только cause/impact flagged-issue (текст, не числа, не статус F-строки). Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
+`summary.headline` — одна фраза: сначала trust-error с id integrity (`f_001`), иначе high F-issue (`B-F08`), иначе шаблон полноты. Это не вердикт «модель верна». `conclusions[]` собирает код: `finding_ids` — `f_*` из integrity **или** `B-F*` из `risk_screen.issues`; `cell_refs` ⊆ refs этих карточек/issues ⊆ IR. LLM текст выводов и вердикт не пишет; ChatPort может переписать только cause/impact flagged-issue (текст, не числа, не статус F-строки). Пустой прогон: `conclusions` пуст, headline про включённые проверки. Старый `report.json` без этих полей читается с defaults.
 
 `404` если аудита не было. `403` если `X-Actor-Id` не владелец (`owner.json`). Отдельного `/findings` или `/risk-screen` нет. `sha256` в отчёте — хеш **содержимого** файла, не `audit_id`.
 
@@ -400,7 +402,7 @@ Content-Type: application/json
 POST /v1/audits                    202  { audit_id, status: queued }
 GET  /v1/audits/{id}               200  { status: running, stage: compile }
 GET  /v1/audits/{id}               200  { status: needs_input, report_url }
-GET  /v1/audits/{id}/report        200  { risk_screen, issues, positives, verdict, conclusions, questions }
+GET  /v1/audits/{id}/report        200  { risk_screen: {matrix, issues, positives, verdict}, conclusions, questions }
 POST /v1/audits/{id}/answers       202  { status: queued, stage: queued }
 GET  /v1/audits/{id}/report        200  { status: succeeded, questions: [] }
 ```

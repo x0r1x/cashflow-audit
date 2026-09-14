@@ -662,6 +662,34 @@ def test_f08_year_axis_is_insufficient() -> None:
     assert not any(i.control_id == "F08" for i in doc.issues)
 
 
+def test_f08_quarter_axis_is_insufficient() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Cash")],
+        sheet="BS",
+        axis=headers(
+            (2, "2025Q1", "forecast"),
+            (3, "2025Q2", "forecast"),
+            (4, "2025Q3", "forecast"),
+            (5, "2025Q4", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("BS", 2, "Cash", "bs.cash", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "-1"),
+            cell("BS", "C2", "80"),
+            cell("BS", "D2", "60"),
+            cell("BS", "E2", "40"),
+        ],
+    )
+    assert _control(doc, "F08").status == "insufficient"
+    assert not any(i.control_id == "F08" for i in doc.issues)
+
+
 def test_f08_negative_month_is_flagged() -> None:
     layout = simple_layout(
         [LayoutRow(row=2, label="Cash")], sheet="BS", axis=MONTHS

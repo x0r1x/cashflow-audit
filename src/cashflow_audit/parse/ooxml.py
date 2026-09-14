@@ -204,6 +204,10 @@ def parse_ooxml(zf: zipfile.ZipFile) -> tuple[list[RawCell], WorkbookMeta]:
     formats = _load_formats(zf, wb_rels)
     externals = _load_externals(zf, wb_rels, wb_root)
     names, iterate = _load_names_and_iterate(wb_root)
+    date1904 = False
+    workbook_pr = find_child(wb_root, "workbookPr")
+    if workbook_pr is not None:
+        date1904 = as_bool(workbook_pr.get("date1904"))
 
     nameset = {name.replace("\\", "/") for name in zf.namelist()}
     has_vba = any(path.endswith("vbaProject.bin") for path in nameset)
@@ -246,6 +250,7 @@ def parse_ooxml(zf: zipfile.ZipFile) -> tuple[list[RawCell], WorkbookMeta]:
         externals=externals,
         locale_hint="ru" if locale_ru else "en",
         iterate=iterate,
+        date1904=date1904,
         defined_names=names,
     )
     return cells, meta

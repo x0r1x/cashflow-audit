@@ -11,6 +11,7 @@ def _c(
     *,
     hidden: bool = False,
     formula: str | None = None,
+    number_format: str | None = None,
 ) -> dict:
     col, row = parse_addr(addr)
     return {
@@ -23,7 +24,7 @@ def _c(
         "formula_raw": formula,
         "formula_template": None,
         "unparsed": False,
-        "number_format": None,
+        "number_format": number_format,
         "comment": None,
     }
 
@@ -160,3 +161,160 @@ def test_plan_fact_headers_share_period_key() -> None:
     headers = layout.sheets[0].blocks[0].axis.headers
     assert [h.period_key for h in headers] == ["2024", "2024"]
     assert [h.role for h in headers] == ["historical", "forecast"]
+
+
+def test_date_year_quarter_band_is_one_quarterly_axis() -> None:
+    cells = [
+        _c("P&L", "A4", None),
+        _c("P&L", "B4", "01.07.2022"),
+        _c("P&L", "C4", "01.10.2022"),
+        _c("P&L", "D4", "01.01.2023"),
+        _c("P&L", "E4", "01.04.2023"),
+        _c("P&L", "B6", "2022"),
+        _c("P&L", "C6", "2022"),
+        _c("P&L", "D6", "2023"),
+        _c("P&L", "E6", "2023"),
+        _c("P&L", "A7", "Квартал"),
+        _c("P&L", "B7", "3"),
+        _c("P&L", "C7", "4"),
+        _c("P&L", "D7", "1"),
+        _c("P&L", "E7", "2"),
+        _c("P&L", "A8", "Revenue"),
+        _c("P&L", "B8", "10"),
+        _c("P&L", "C8", "11"),
+        _c("P&L", "D8", "12"),
+        _c("P&L", "E8", "13"),
+    ]
+    layout = detect_layout(cells)
+    sheet = layout.sheets[0]
+    assert len(sheet.blocks) == 1
+    keys = [h.period_key for h in sheet.blocks[0].axis.headers]
+    assert keys == ["2022Q3", "2022Q4", "2023Q1", "2023Q2"]
+    assert [h.role for h in sheet.blocks[0].axis.headers] == ["historical"] * 4
+    assert [r.label for r in sheet.blocks[0].rows] == ["Revenue"]
+
+
+def test_forecast_banner_starts_second_block() -> None:
+    cells = [
+        _c("P&L", "B1", "01.07.2022"),
+        _c("P&L", "C1", "01.10.2022"),
+        _c("P&L", "B2", "2022"),
+        _c("P&L", "C2", "2022"),
+        _c("P&L", "A3", "Квартал"),
+        _c("P&L", "B3", "3"),
+        _c("P&L", "C3", "4"),
+        _c("P&L", "A4", "Revenue"),
+        _c("P&L", "B4", "10"),
+        _c("P&L", "C4", "11"),
+        _c("P&L", "A10", "Прогноз"),
+        _c("P&L", "B11", "2026"),
+        _c("P&L", "C11", "2026"),
+        _c("P&L", "B12", "1 кв."),
+        _c("P&L", "C12", "2 кв."),
+        _c("P&L", "A13", "Revenue"),
+        _c("P&L", "B13", "20"),
+        _c("P&L", "C13", "21"),
+    ]
+    layout = detect_layout(cells)
+    blocks = layout.sheets[0].blocks
+    assert len(blocks) == 2
+    assert [h.period_key for h in blocks[0].axis.headers] == ["2022Q3", "2022Q4"]
+    assert [h.role for h in blocks[0].axis.headers] == ["historical", "historical"]
+    assert [h.period_key for h in blocks[1].axis.headers] == ["2026Q1", "2026Q2"]
+    assert [h.role for h in blocks[1].axis.headers] == ["forecast", "forecast"]
+
+
+def test_fact_marker_overrides_forecast_banner() -> None:
+    cells = [
+        _c("P&L", "A1", "Прогноз"),
+        _c("P&L", "B2", "2025"),
+        _c("P&L", "C2", "2026"),
+        _c("P&L", "D2", "2026"),
+        _c("P&L", "E2", "2026"),
+        _c("P&L", "B3", "4 кв."),
+        _c("P&L", "C3", "1 кв."),
+        _c("P&L", "D3", "2 кв."),
+        _c("P&L", "E3", "3 кв."),
+        _c("P&L", "B4", "факт"),
+        _c("P&L", "A5", "№"),
+        _c("P&L", "B5", "1"),
+        _c("P&L", "C5", "2"),
+        _c("P&L", "D5", "3"),
+        _c("P&L", "E5", "4"),
+        _c("P&L", "A6", "Revenue"),
+        _c("P&L", "B6", "10"),
+        _c("P&L", "C6", "20"),
+        _c("P&L", "D6", "30"),
+        _c("P&L", "E6", "40"),
+    ]
+    layout = detect_layout(cells)
+    assert len(layout.sheets[0].blocks) == 1
+    headers = layout.sheets[0].blocks[0].axis.headers
+    assert [h.period_key for h in headers] == ["2025Q4", "2026Q1", "2026Q2", "2026Q3"]
+    assert [h.role for h in headers] == ["historical", "forecast", "forecast", "forecast"]
+    assert [r.label for r in layout.sheets[0].blocks[0].rows] == ["Revenue"]
+
+
+def test_year_forward_fill_under_forecast_banner() -> None:
+    cells = [
+        _c("P&L", "A1", "Прогноз"),
+        _c("P&L", "B2", "2026"),
+        _c("P&L", "D2", "2027"),
+        _c("P&L", "B3", "1 кв."),
+        _c("P&L", "C3", "2 кв."),
+        _c("P&L", "D3", "3 кв."),
+        _c("P&L", "E3", "4 кв."),
+        _c("P&L", "A4", "Revenue"),
+        _c("P&L", "B4", "1"),
+        _c("P&L", "C4", "2"),
+        _c("P&L", "D4", "3"),
+        _c("P&L", "E4", "4"),
+    ]
+    layout = detect_layout(cells)
+    headers = layout.sheets[0].blocks[0].axis.headers
+    assert [h.period_key for h in headers] == ["2026Q1", "2026Q2", "2027Q3", "2027Q4"]
+    assert all(h.role == "forecast" for h in headers)
+
+
+def test_start_end_period_pair_prefers_end() -> None:
+    cells = [
+        _c("CF", "A1", "Начало периода"),
+        _c("CF", "B1", "01.01.2024"),
+        _c("CF", "C1", "01.04.2024"),
+        _c("CF", "A2", "Конец периода"),
+        _c("CF", "B2", "31.03.2024"),
+        _c("CF", "C2", "30.06.2024"),
+        _c("CF", "A3", "Cash"),
+        _c("CF", "B3", "8"),
+        _c("CF", "C3", "9"),
+    ]
+    layout = detect_layout(cells)
+    keys = [h.period_key for h in layout.sheets[0].blocks[0].axis.headers]
+    assert keys == ["2024Q1", "2024Q2"]
+
+
+def test_excel_serial_with_date_format_is_period() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "44743", number_format="mm-dd-yy"),
+        _c("P&L", "C1", "44835", number_format="mm-dd-yy"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "1"),
+        _c("P&L", "C2", "2"),
+    ]
+    layout = detect_layout(cells)
+    keys = [h.period_key for h in layout.sheets[0].blocks[0].axis.headers]
+    assert keys == ["2022Q3", "2022Q4"]
+
+
+def test_plain_serial_without_date_format_is_not_a_period() -> None:
+    cells = [
+        _c("P&L", "A1", "Item"),
+        _c("P&L", "B1", "44743"),
+        _c("P&L", "C1", "44835"),
+        _c("P&L", "A2", "Revenue"),
+        _c("P&L", "B2", "1"),
+        _c("P&L", "C2", "2"),
+    ]
+    layout = detect_layout(cells)
+    assert layout.sheets[0].blocks == []

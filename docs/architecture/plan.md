@@ -265,7 +265,7 @@ workbook.json: листы, макро/xlm, externals[], locale_hint.
 
 **Вход:** catalog.cells. **Выход:** `layout.json`.
 
-Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — regex `2025E` / `1 кв. 2025` / `янв.25` / `Jan-25` / `2025-01` / факт|план; строка биндится к оси **внутри блока**. Месяц → `period_key=YYYY-MM` (иначе `_period_count` не видит ось). Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка.
+Label column — левая видимая строковая в блоке (skip hidden A/B). Блок — пустые ряды, merged, bold, заливка, смена кластера шаблонов. Ось — **полоса** заголовков: `2025E` / `1 кв. 2025` / `янв.25` / `Jan-25` / `2025-01` / `01.07.2022` / Excel serial с date-like format / факт|план; год и `N кв.` могут быть на разных рядах (year forward-fill). Пара «Начало периода / Конец периода» — одна ось, берём конец. Зерно (`YYYY` / `YYYYQn` / `YYYY-MM`) по каденсу всей оси; смешанный шаг не угадываем. Роль: суффикс/тег в ячейке, иначе ближайший маркер слева/сверху до следующего (баннер «Прогноз»/`Forecast`/`Факт`), иначе historical. Строка биндится к оси **внутри блока**. Две оси на листе = два блока. Роль колонки: `historical|forecast|stub|scenario|total`. Иерархия indent/bold. Check-row — метка, не находка. `cached_value` остаётся serial; decode только в layout.
 
 Имя листа — слабый признак. Роль периода ≠ роль статьи.
 
@@ -367,7 +367,7 @@ class Candidate(BaseModel):
 
 FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в книге, без двойного минуса), tag `derived`. DSCR/LLCR/PLCR только mapped-строка. Net debt = `bs.debt − bs.cash` если оба есть.
 
-Периоды по `period_key`. F01–F03, F06, F11 — год; F08/F09 — finest axis (месяц `YYYY-MM`); только год у F08 → `insufficient`.
+Периоды по `period_key`. F01–F03, F06, F11 — год (полный набор Q1–Q4 суммируется в год для потока, Q4 для стока; неполный год не годовой evidence); F08/F09 — finest axis (месяц `YYYY-MM`); только год или только квартал у F08 → `insufficient`.
 
 `ready_for_credit`: `false` если high-issue или identity error или `excel_error`; иначе `null` (не `true`).
 
@@ -375,7 +375,37 @@ FCF: mapped `cf.fcf` или derived `CFO+CAPEX` (знак capex как в кни
 
 ### 8.7.1 F01–F14 (кратко)
 
-F01 выручка (падение / обрыв факт→прогноз / план-факт ≥10%); mapped volume/price → декомпозиция; mapped `fx.rate` → `fx_change`, пару USD/RUB не выдумываем. F02 EBITDA/маржа. F03 убытки ≥2 периода. F04 NI vs CFO vs FCF, cause `ops|wc_ar|wc_ap|capex|dividends`. F05 DSO от выручки, DIO/DPO от COGS. F06 Net Debt/EBITDA. F07 ICR = EBITDA/|interest|; mapped `cov.dscr`/`cov.llcr`/`cov.plcr` < 1.0 → flagged, иначе `None`, из CFADS не считаем. F08 min cash, runway, cash plug (плоский EoP + drawdown). F09 концентрация погашений ≥30%. F10 FX без mapped `fx.rate` → insufficient; курс есть → clear, USD/RUB не выдумываем. F11 прогноз vs история ≥15 п.п. F12 выручка vs FCF. F13 дивиденды vs FCFF/FCFE. F14 headroom без mapped `covenant.headroom` → insufficient; ≤ 0 → flagged; 3.5x не выдумываем.
+Статус строки:
+
+- `clear` — обязательные ряды полны, порог не пробит;
+- `flagged` — порог пробит; создаётся ровно один issue `B-Fxx`, периоды сжимаются в evidence;
+- `not_applicable` — в книге нет блока или обязательного concept;
+- `insufficient` — блок есть, но данных или нужной детализации оси недостаточно.
+
+`confidence`: `low`, если связанное equality сломано (I1 → F06/F08, I3a → F04/F08, I3b → F13); `medium` для derived FCF/net debt или допустимой более грубой оси; `high` для mapped ряда без связанного identity-сигнала. Нет concept — не HITL.
+
+1. **F01 Динамика выручки факт→прогноз.** `pnl.revenue`. Flag, если прогнозный YoY ≤ −10%; либо изменение на стыке факт/прогноз отличается от последнего исторического YoY минимум на 15 п.п.; либо на общем `period_key` `|actual/plan − 1| ≥ 10%`. Исторический рост внутри своей полосы не риск. Mapped volume/price дают `volume_change`/`price_change`; mapped `fx.rate` — `fx_change`, валютную пару не выдумываем.
+2. **F02 EBITDA и маржа.** `pnl.ebitda` + `pnl.revenue`. Flag: EBITDA YoY ≤ −10% или маржа падает минимум на 5 п.п.
+3. **F03 Убытки / отрицательная EBITDA.** `pnl.ebitda`, optional `pnl.net_income`. Flag при двух подряд отрицательных прогнозных периодах.
+4. **F04 CFO/FCF и разрыв прибыль→деньги.** Всегда показывать доступные NI, CFO, FCF и accruals `NI−CFO`. Flag: FCF < 0 минимум в двух прогнозных годах при NI ≥ 0 либо CFO растёт, а FCF падает. `cause ∈ {ops,wc_ar,wc_ap,capex,dividends}`; при flagged вердикт начинает финансовые тренды словами «прибыль не равна деньгам».
+5. **F05 Оборотный капитал.** Меньше двух из `bs.ar|bs.inventory|bs.ap` → `not_applicable`. DSO = AR/(revenue/365); DIO = Inventory/(COGS/365); DPO = AP/(COGS/365). Нет COGS → DIO/DPO insufficient, DSO можно считать. Flag: DSO или DPO вырос минимум на 15 дней либо `ΔAR > 0.3·ΔRevenue`; дни и качество CFO остаются в evidence.
+6. **F06 Долговая нагрузка.** Net Debt = `bs.debt−bs.cash`; без cash допускается gross debt с confidence не выше medium. Flag: ND/EBITDA вырос минимум на 1.0x год к году или достиг 4.0x. Рост абсолютного долга при снижении коэффициента — clear.
+7. **F07 ICR / DSCR / LLCR / PLCR.** ICR = EBITDA/|interest|; flag при ICR < 1.5, priority high при < 1.0. DSCR/LLCR/PLCR проверять только по mapped `cov.*`, flag при < 1.0; из CFADS не считать. Отсутствующий DSCR отмечать в evidence, но не превращать ICR clear в insufficient.
+8. **F08 Ликвидность.** Finest axis, для v1 нужна месячная `YYYY-MM`; только год или только квартал → insufficient. Flag high при любом EoP cash < 0. Evidence: min cash, период минимума и runway до первой отрицательной точки или «не иссякает». Почти постоянный EoP при `cf.drawdown > 0` — cash plug: insufficient с evidence, не positive и не `B-F08`.
+9. **F09 Концентрация погашений.** Месячный `cf.repayment`. Flag, если максимум суммы погашений за календарный прогнозный год / все прогнозные погашения ≥ 30%; peak month — evidence. Без месячной оси — insufficient.
+10. **F10 Процентный / валютный риск.** Рост процентов вместе с долгом сам по себе не флаг. Нет mapped `fx.rate` → insufficient; курс есть → clear с evidence. Нулевой FX не доказывает отсутствие экспозиции, валютную пару не выдумываем.
+11. **F11 Агрессивность предпосылок.** Средний прогнозный YoY выручки минус средний исторический YoY ≥ 15 п.п. F01 и F11 не дублируют один флаг: F01 — падение, cliff или план-факт; F11 — прогноз существенно лучше истории.
+12. **F12 Непоследовательность драйверов.** За прогнозный горизонт revenue ≥ +20% и FCF ≤ −20% либо FCF переходит из неотрицательного в устойчиво отрицательный при росте CAPEX → flagged.
+13. **F13 Дивиденды vs FCFE.** FCFF = mapped `cf.fcf` либо derived CFO+CAPEX; FCFE = FCFF+drawdown−repayment, если financing-ряды mapped. Дивиденды > 0 при FCFF < 0 всегда flagged: priority high при положительном net borrowing, иначе medium. Нет FCF → insufficient; FCFF и FCFE показывать рядом.
+14. **F14 Headroom.** В evidence считать доступные min cash, max ND/EBITDA и min ICR. Без mapped `covenant.headroom` → insufficient, не «запаса хватает»; headroom ≤ 0 → flagged high. Пользовательский порог и 3.5x не выдумываем.
+
+FCF для FRS: сначала mapped `cf.fcf`, иначе `cf.cfo + cf.capex` со знаком CAPEX из книги, tag `derived`, confidence не выше medium. Financing-строки не запрещают этот derived FCFF; запрет при CFF относится только к equality I3a. F04/F12/F13 без FCF становятся insufficient. Новые F15+ не добавляем.
+
+Issue на flagged-контроль имеет стабильный id `B-Fxx`, поля `control_id`, `class`, `priority`, `metrics`, `cell_refs`, `cause`, `impact`. Числа и refs берутся только из payload/IR; LLM может переписать только cause/impact. Приоритеты: high — отрицательная касса F08, F13 с положительным net borrowing, coverage < 1.0; medium — F03/F04/F06/F09/F12 и ICR < 1.5; low — F01/F02/F11 без кассового разрыва.
+
+Positives строит код только из `clear` с числами: согласованный рост revenue/EBITDA и стабильная маржа; снижение ND/EBITDA; ICR растёт и ≥ 1.5; min cash ≥ 0 на доступной полной оси. `insufficient` не даёт positive.
+
+Verdict состоит из пяти пунктов: расчётная целостность; финансовые тренды; ключевые flagged-риски high→low; ликвидность F08/F09; рекомендация. `ready_for_credit=false` при high issue, identity error I1/I3a/I3b или `excel_error`; иначе `null`, никогда `true`. LLM вердикт не пишет.
 
 ### 8.8 lineage
 
@@ -388,17 +418,17 @@ ChatPort под `try_slot("llm")`. Шаблон integrity всегда полн�
 Нарезка контента:
 
 - `integrity.json` — карточки техники и identity (Note01+02), id `f_*`
-- тонкий `report.json` — матрица F01–F14, issues (`B-F*`), positives, verdict, conclusions, индекс questions. `findings` пустой (или только FRS-карточки, но **не** дублировать detector+refs в integrity). **Нет** полного списка excel_error / unused_cell
+- тонкий `report.json` — `risk_screen {matrix, issues, positives, verdict}`, conclusions, индекс questions. `findings` всегда пустой и сохранён только для совместимости; полного списка excel_error / unused_cell здесь нет
 
-`conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. Combo не копирует тело карточки. `finding_ids` — `f_*` integrity **или** `B-F*` issue. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline`: trust-error с id integrity > high F-issue (`B-F*`) > шаблон полноты; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null} в `verdict`. ChatPort — только проза flagged issues (cause/impact текст, не числа); не вердикт и не статус F-строки.
+`conclusions[]` только в report. Порядок kind: `trust` → `combo` → `dynamics`. Потолок 8 не режет матрицу 14. Combo v1: хардкод/`pattern_break` + `frs.F02`; `identity.I1` + `frs.F08` (тот же период); `external_link` + находка с общей метрикой/path. Combo не копирует тело карточки. `finding_ids` — `f_*` integrity **или** `B-F*` из `risk_screen.issues`. `hist_manual_adjustment` с риском не клеится. `unused_cell` / `xlm_or_vba` в выводы не входят. `summary.headline`: trust-error с id integrity > high F-issue (`B-F*`) > шаблон полноты; нуль находок — «по включённым проверкам», не «модель верна». `ready_for_credit` ∈ {false, null} только в `risk_screen.verdict`. ChatPort — только проза flagged issues (cause/impact текст, не числа); не вердикт и не статус F-строки.
 
 Drop находки без ref ∈ IR.
 
 Нет eligible-находок (после drop / top-N пуст) → LLM не зовём → не `degraded`, даже если ChatPort задан.
 
-`questions` = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)` — индекс в report для HITL.
+`questions` = union mapping + identity_gap + explain, дедуп `(kind, cell_refs)` — индекс в report для HITL. `POST /answers` валидирует id и options по этому индексу, но glossary пополняет только ответами на mapping-вопросы; `422` используется только для неизвестного question id или option.
 
-Атомарно `report.json` + `integrity.json` + `meta.json`. Воркер после return: HSET терминал, DEL budget, unlock audit, ACK, release run-slot.
+Каждый из `integrity.json` и `report.json` пишется через tmp+rename; терминальный `meta.json` пишется последним и служит commit marker готового комплекта. Воркер после return: HSET терминал, DEL budget, unlock audit, ACK, release run-slot.
 
 ---
 
@@ -427,7 +457,7 @@ class ChatPort(Protocol):
 | `/integrity` | Note01+Note02 | `integrity.json` | FRS-матрица, issues `B-F*` |
 | `/report` | Note04 / FRS | `report.json` | полный список excel_error / identity; `mapping.rows`; `layout.blocks` |
 
-`GET /v1/audits/{id}` даёт только ссылки в `content` на уже лежащие файлы. Conclusions цитируют `f_*` и/или `B-F*`, не копируют карточки. `ready_for_credit` ∈ {false, null}. FCF: mapped `cf.fcf` или derived `CFO+CAPEX`.
+`GET /v1/audits/{id}` даёт только ссылки в `content` на уже лежащие файлы; при live-прогоне наружу доступны только layout/mapping. Conclusions цитируют `f_*` и/или `B-F*`, не копируют карточки. `ready_for_credit` ∈ {false, null} только в `risk_screen.verdict`. FCF: mapped `cf.fcf` или derived `CFO+CAPEX`.
 
 ---
 
@@ -473,6 +503,25 @@ src/cashflow_audit/
 ```
 
 `checkers` ↛ adapters, explain. `frs` ↛ adapters, explain.
+
+---
+
+## 12.1 Порядок внедрения FRS и content API
+
+Один пункт ниже — отдельный вертикальный срез и отдельный коммит. В каждом срезе сначала красный тест, затем минимальная реализация, затем тесты затронутой стадии и `uv run ruff check src tests`. Следующий срез не начинается до зелёного предыдущего.
+
+1. Документы: канон четырёх content-маршрутов, вложенный `risk_screen`, FCF, I3a и порядок `check → frs → lineage`.
+2. Layout: месяцы (`янв.25`, `янв-25`, `Jan-25`, `2025-01`) и общий календарный `period_key` для plan/fact; тесты классификатора и блока на синтетической оси.
+3. Identity: выравнивание по `period_key`, границы scenario, I3a от net CF и полные refs всех сторон; positive и capex-negative тесты.
+4. HTTP-нарезка: `/layout`, `/mapping`, `/integrity`, тонкий `/report`, progressive links, 400/403/404/409 и отсутствие `/findings`/`/risk-screen`.
+5. Онтология: `cf.fcf`, `cf.repayment`, `cf.drawdown`; mapping cascade не меняется.
+6. Скелет FRS: закрытая матрица 14 строк, `frs.json`, skip и порядок pipeline; пустой mapping даёт 14× not_applicable и 0 issues.
+7. P&L: F01–F03 и F11, включая plan/fact и запрет дублировать F01/F11.
+8. Cash/debt: F04, F06–F08, F13 — FCF/cause/accruals, net debt, coverage, runway/cash plug, FCFF/FCFE.
+9. Остальные контролы: F05, F09, F10, F12, F14 с отдельным positive и отрицательным тестом на каждый порог.
+10. Lineage/explain/HITL: BFS читает candidates и flagged FRS; `integrity.json` отделён от вложенного тонкого report; ChatPort меняет только issue prose; questions union/дедуп; HITL стирает новый хвост.
+
+Тестовые каталоги: `tests/layout/`, `tests/checkers/`, `tests/api/`, `tests/frs/`, `tests/lineage/`, `tests/explain/`, `tests/pipeline/`, `tests/cli/`. Фикстуры — только синтетические, одна книга на один инвариант. Selectel, другие клиентские книги и private eval pack в pytest/git не входят. После точечных тестов каждого среза: полный набор стадии, затем `uv run pytest` перед завершением всей серии.
 
 ---
 

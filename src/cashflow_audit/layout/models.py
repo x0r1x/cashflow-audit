@@ -10,6 +10,7 @@ ColumnRole = Literal["historical", "forecast", "stub", "scenario", "total"]
 class PeriodHit(BaseModel):
     role: ColumnRole
     period_key: str
+    explicit_role: bool = False
 
 
 class AxisHeader(BaseModel):

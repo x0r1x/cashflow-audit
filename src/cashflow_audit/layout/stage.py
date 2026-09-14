@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from cashflow_audit.ir.catalog import IrCatalog
@@ -10,7 +11,12 @@ from cashflow_audit.store.fs import read_parquet, write_json
 
 def layout_workbook(dest_dir: Path, catalog: IrCatalog | None = None) -> Layout:
     cells = read_parquet(dest_dir / "ir" / "cells.parquet")
-    layout = detect_layout(cells)
+    date1904 = False
+    meta_path = dest_dir / "raw" / "workbook.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        date1904 = bool(meta.get("date1904"))
+    layout = detect_layout(cells, date1904=date1904)
     write_json(dest_dir / "layout.json", layout.model_dump(mode="json"))
     if catalog is not None:
         register_layout(layout, catalog)

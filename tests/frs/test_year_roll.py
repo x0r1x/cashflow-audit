@@ -117,3 +117,106 @@ def test_f04_accruals_are_ni_minus_cfo() -> None:
     assert row.metrics.get("accruals") == 4.0
     assert row.metrics.get("ni") == 12.0
     assert row.metrics.get("cfo") == 8.0
+
+
+QUARTERS = headers(
+    (2, "2024Q1", "historical"),
+    (3, "2024Q2", "historical"),
+    (4, "2024Q3", "historical"),
+    (5, "2024Q4", "historical"),
+    (6, "2025Q1", "forecast"),
+    (7, "2025Q2", "forecast"),
+    (8, "2025Q3", "forecast"),
+    (9, "2025Q4", "forecast"),
+)
+
+
+def test_f01_sums_complete_quarters_into_calendar_year() -> None:
+    layout = simple_layout([LayoutRow(row=2, label="Revenue")], axis=QUARTERS)
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "25"),
+            cell("P&L", "C2", "25"),
+            cell("P&L", "D2", "25"),
+            cell("P&L", "E2", "25"),
+            cell("P&L", "F2", "10"),
+            cell("P&L", "G2", "10"),
+            cell("P&L", "H2", "10"),
+            cell("P&L", "I2", "10"),
+        ],
+    )
+    row = _control(doc, "F01")
+    assert row.status == "flagged"
+    assert row.metrics.get("period_key") == "2025"
+
+
+def test_f01_incomplete_quarters_are_not_annual_evidence() -> None:
+    layout = simple_layout(
+        [LayoutRow(row=2, label="Revenue")],
+        axis=headers(
+            (2, "2024Q1", "historical"),
+            (3, "2024Q2", "historical"),
+            (4, "2024Q3", "historical"),
+            (5, "2025Q1", "forecast"),
+            (6, "2025Q2", "forecast"),
+        ),
+    )
+    mapping = MappingDocument(
+        rows=[mapped("P&L", 2, "Revenue", "pnl.revenue", role="output")]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("P&L", "B2", "90"),
+            cell("P&L", "C2", "10"),
+            cell("P&L", "D2", "10"),
+            cell("P&L", "E2", "50"),
+            cell("P&L", "F2", "12"),
+        ],
+    )
+    assert _control(doc, "F01").status != "flagged"
+
+
+def test_f06_uses_q4_stock_not_sum() -> None:
+    layout = _stack(
+        simple_layout([LayoutRow(row=2, label="Debt")], sheet="BS", axis=QUARTERS),
+        simple_layout([LayoutRow(row=2, label="EBITDA")], sheet="P&L", axis=QUARTERS),
+    )
+    mapping = MappingDocument(
+        rows=[
+            mapped("BS", 2, "Debt", "bs.debt", role="output"),
+            mapped("P&L", 2, "EBITDA", "pnl.ebitda", role="output"),
+        ]
+    )
+    doc = run_frs(
+        mapping,
+        layout=layout,
+        cells=[
+            cell("BS", "B2", "10"),
+            cell("BS", "C2", "20"),
+            cell("BS", "D2", "30"),
+            cell("BS", "E2", "100"),
+            cell("BS", "F2", "40"),
+            cell("BS", "G2", "50"),
+            cell("BS", "H2", "60"),
+            cell("BS", "I2", "120"),
+            cell("P&L", "B2", "10"),
+            cell("P&L", "C2", "10"),
+            cell("P&L", "D2", "10"),
+            cell("P&L", "E2", "20"),
+            cell("P&L", "F2", "10"),
+            cell("P&L", "G2", "10"),
+            cell("P&L", "H2", "10"),
+            cell("P&L", "I2", "20"),
+        ],
+    )
+    row = _control(doc, "F06")
+    assert row.status == "clear"
+    assert row.metrics.get("ratio") == 120 / 50
+    assert row.metrics.get("prev_ratio") == 100 / 50
